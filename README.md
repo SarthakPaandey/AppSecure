@@ -74,52 +74,84 @@ Full diagrams, sequences, and module map: **[`docs/ARCHITECTURE.md`](docs/ARCHIT
 
 ## System overview
 
-```text
-┌────────────┐   HTTP    ┌─────────────────────────────────────────────┐
-│  Client    │◄─────────►│  FastAPI (ingest / query / health)          │
-│  curl/UI   │           └──────────────────┬──────────────────────────┘
-└────────────┘                              │
-                     ┌──────────────────────┼──────────────────────┐
-                     ▼                      ▼                      ▼
-            ┌────────────────┐    ┌──────────────────┐   ┌─────────────────┐
-            │ SQLite         │    │ Query pipeline   │   │ ModelScope embed│
-            │ findings SoR   │◄───│ route → filter   │   │ Cerebras chat   │
-            └────────────────┘    │ or hybrid → gen  │   └─────────────────┘
-                                  │ → citation gate  │
-                                  └────────┬─────────┘
-                                           ▼
-                                  ┌────────────────┐
-                                  │ Chroma vectors │
-                                  │ findings +     │
-                                  │ knowledge      │
-                                  └────────────────┘
+![Architecture overview](docs/assets/architecture-overview.jpg)
+
+```mermaid
+flowchart TB
+  subgraph Client
+    U[Engineer / PTaaS UI / curl]
+  end
+
+  subgraph API["AppSecure FastAPI"]
+    EP["/ingest · /query · /health"]
+    PIPE[Route → FilterEngine or Hybrid → Generator → Citation gate]
+  end
+
+  subgraph Stores
+    SQL[(SQLite<br/>findings SoR)]
+    CHR[(Chroma<br/>findings + knowledge)]
+  end
+
+  subgraph Providers
+    EMB[ModelScope embeddings]
+    LLM[Cerebras chat LLM]
+  end
+
+  U <-->|HTTP JSON| EP
+  EP --> PIPE
+  PIPE --> SQL
+  PIPE --> CHR
+  PIPE <--> EMB
+  PIPE <--> LLM
 ```
 
 **Dual store:** SQLite answers “what is in this scan?” completely. Chroma supports soft language and knowledge context. **Knowledge never proves presence** — only finding rows do.
+
+More diagrams (ingest sequence, hybrid IR, ER model, fail-soft): **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
 ---
 
 ## Query pipeline
 
-```text
-Question + scan_id
-  → Load selected scan + catalog (IDs, endpoints)
-  → Extract explicit structure (rules)
-  → Exact structured?
-       Yes → SQLite FilterEngine → template → citation gate
-       No  → Optional semantic planner (ambiguous only)
-              → Validate against catalog (rules win on hard slots)
-              → High-conf out of scope? → refuse
-              → Else BM25 ∪ Dense → RRF
-                   → scan membership + subtype existence rules
-                   → empty support? → abstain
-                   → knowledge (optional context)
-                   → grounded generator or fail-soft template
-                   → citation gate
-  → Response
+```mermaid
+flowchart TD
+  Q[Question + scan_id] --> L[Load scan + catalog]
+  L --> R[Rule-based structure]
+  R --> EX{Exact structured?}
+  EX -->|Yes| F[SQLite FilterEngine]
+  F --> T[Structured template]
+  T --> G[Citation gate]
+  EX -->|No| P[Optional semantic planner]
+  P --> V[Validate vs catalog]
+  V --> O{High-conf out of scope?}
+  O -->|Yes| REF[Refuse]
+  O -->|No| H[BM25 ∪ Dense → RRF]
+  H --> S{Supporting findings?}
+  S -->|No| ABS[Abstain]
+  S -->|Yes| K[Knowledge context]
+  K --> GEN[Grounded generator<br/>or fail-soft template]
+  GEN --> G
+  G --> RESP[Response]
 ```
 
 ### Hard vs soft questions
+
+```mermaid
+flowchart LR
+  subgraph Hard["Exact / hard"]
+    H1["How many CRITICAL?"]
+    H2["Payments endpoint?"]
+    H3["Is there RCE?"]
+  end
+  subgraph Soft["Soft / semantic"]
+    S1["Other users' accounts?"]
+    S2["SSRF cloud risk?"]
+  end
+  Hard --> SQL[FilterEngine / existence gate]
+  Soft --> HY[Planner? + Hybrid + LLM]
+  SQL --> Z["0 LLM typical"]
+  HY --> N["1–2 LLM typical"]
+```
 
 | Type | Example | Path | Typical LLM calls |
 |------|---------|------|------------------:|
@@ -156,6 +188,16 @@ Provider hang → timeout → **store-bound template**, not multi-minute stall. 
 ## Anti-hallucination
 
 Layered controls (prompts alone are **not** enough):
+
+```mermaid
+flowchart TB
+  A[Store as truth] --> B[Existence + subtype gate]
+  B --> C[Scan-bound retrieval]
+  C --> D[Grounded generator]
+  D --> E[Server citation gate]
+  E --> F[Fail-closed vectors]
+  F --> G[Fail-soft templates]
+```
 
 | Control | Behavior |
 |---------|----------|
