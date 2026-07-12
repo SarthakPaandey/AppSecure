@@ -125,9 +125,25 @@ TOPICS: dict[str, Topic] = {
             "access control",
             "broken access control",
             "object level",
+            "object-level authorization",
             "direct object",
             "ownership",
             "permission",
+            # Common AppSec paraphrases (class-level, not finding-ID packs)
+            "horizontal privilege escalation",
+            "horizontal privilege",
+            "horizontal access",
+            "cross-tenant",
+            "cross tenant",
+            "cross-user",
+            "cross user",
+            "cross-user access",
+            "resource ownership",
+            "ownership bypass",
+            "other users",
+            "other tenants",
+            "another tenant",
+            "another user",
         ),
         abbrevs=("idor", "bola"),
         related=("authentication",),
@@ -263,6 +279,10 @@ def topic_names_for_text(text: str, exclude: Iterable[str] | None = None) -> lis
     for parent, children in _PARENT_SUPPRESSED_BY_CHILD.items():
         if parent in seen and (seen & children):
             drop.add(parent)
+    # "horizontal privilege escalation" is authorization/BOLA, not vertical
+    # mass-assignment privilege escalation
+    if "horizontal" in t and "authorization" in seen:
+        drop.add("mass_assignment")
     if drop:
         out = [n for n in out if n not in drop]
     return out

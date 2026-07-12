@@ -71,7 +71,17 @@ def _phrase_matches(blob: str, phrase: str) -> bool:
             re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9])", blob)
         )
     # whole-token-ish match for unigrams
-    return bool(re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9])", blob))
+    if not re.search(rf"(?<![a-z0-9]){re.escape(p)}(?![a-z0-9])", blob):
+        return False
+    # HTTP "Authorization header" is not access-control/BOLA authorization
+    if p == "authorization":
+        if re.search(r"\bauthorization\s+header\b", blob) and not re.search(
+            r"broken object|object level|\bidor\b|\bbola\b|access control|"
+            r"cwe-?639|ownership|horizontal",
+            blob,
+        ):
+            return False
+    return True
 
 
 def matches_any_phrase(rec: FindingRecord, phrases: list[str]) -> bool:

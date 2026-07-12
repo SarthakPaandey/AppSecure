@@ -60,6 +60,15 @@ _SOFT_STOP = frozenset(
         "ssrf",
         "sql",
         "xss",
+        "permit",
+        "permits",
+        "allow",
+        "allows",
+        "have",
+        "has",
+        "support",
+        "expose",
+        "exposes",
     }
 )
 

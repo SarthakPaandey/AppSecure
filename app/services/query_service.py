@@ -531,6 +531,7 @@ class QueryService:
             retrieval=retrieval,
             findings_store=self.findings_store,
             scan_id=scan_id,
+            question=request.question,
         )
 
         gen = self.generator.generate(

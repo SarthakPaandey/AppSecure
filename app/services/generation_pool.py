@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.rag.router import RouteResult
 from app.retrieval.findings_store import FindingRecord, FindingsStore, sort_by_severity
 from app.retrieval.hybrid import HybridRetrievalResult
+from app.services.compare_focus import focus_findings_for_question
 
 
 def prepare_generation_pool(
@@ -13,6 +14,7 @@ def prepare_generation_pool(
     retrieval: HybridRetrievalResult,
     findings_store: FindingsStore,
     scan_id: str | None,
+    question: str = "",
 ) -> list[FindingRecord]:
     """Expand inventory for templates (top_n / buckets / impact) and cap synthesis size."""
     gen_findings = list(retrieval.findings)
@@ -41,14 +43,24 @@ def prepare_generation_pool(
 
     if route.data_impact or route.classify_problem_buckets:
         gen_findings = gen_findings[:50]
-    elif route.intent in {"explain"} and len(gen_findings) > 3 and not route.top_n:
-        gen_findings = gen_findings[:3]
+    elif route.intent == "compare":
+        gen_findings = focus_findings_for_question(
+            question, gen_findings, max_n=4
+        ) or gen_findings[:4]
+    elif route.intent in {"explain"} and not route.top_n:
+        gen_findings = focus_findings_for_question(
+            question, gen_findings, max_n=3
+        ) or gen_findings[:3]
     elif route.intent == "remediation" and route.class_constraints:
-        gen_findings = gen_findings[:6]
+        gen_findings = focus_findings_for_question(
+            question, gen_findings, max_n=6
+        ) or gen_findings[:6]
     elif route.intent == "remediation" and route.top_n:
         gen_findings = gen_findings[:12]
     elif route.intent == "remediation" and len(gen_findings) > 4:
-        gen_findings = gen_findings[:4]
+        gen_findings = focus_findings_for_question(
+            question, gen_findings, max_n=4
+        ) or gen_findings[:4]
     elif route.intent == "cluster":
         gen_findings = gen_findings[:50]
 

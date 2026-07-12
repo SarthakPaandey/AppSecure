@@ -558,8 +558,15 @@ class AnswerGenerator:
         self, findings: list[FindingRecord], *, question: str = ""
     ) -> GenerationResult:
         """Compare retrieved findings using store fields only (no sample-specific prose)."""
-        ordered = sort_findings(findings)
-        families = [self._control_family(f) for f in ordered[:8]]
+        from app.services.compare_focus import focus_findings_for_question
+
+        # Class-focus first so IDOR compare does not dump unrelated CRITICAL rows
+        ordered = focus_findings_for_question(question, findings, max_n=4)
+        if len(ordered) < 2:
+            ordered = sort_findings(findings)[:4]
+        else:
+            ordered = sort_findings(ordered)
+        families = [self._control_family(f) for f in ordered]
         unique = list(dict.fromkeys(families))
         same_broad = len(unique) == 1
         lines = [
@@ -575,7 +582,7 @@ class AnswerGenerator:
             "",
             "### Findings (from scan store)",
         ]
-        for f in ordered[:8]:
+        for f in ordered:
             param = f"`{f.parameter}`" if f.parameter and f.parameter != "N/A" else "n/a"
             lines.append(
                 f"- **{f.severity}** `{f.finding_id}`: {f.title} "
@@ -599,8 +606,9 @@ class AnswerGenerator:
         )
         return GenerationResult(
             answer="\n".join(lines).strip(),
-            findings_referenced=[f.finding_id for f in ordered[:8]],
+            findings_referenced=[f.finding_id for f in ordered],
             abstained=False,
+            raw={"source": "template"},
         )
 
     def _template_cluster(self, findings: list[FindingRecord]) -> GenerationResult:
@@ -685,7 +693,14 @@ class AnswerGenerator:
         intent: str,
     ) -> GenerationResult:
         """Synthesis-shaped fallback when LLM JSON is unavailable."""
+        from app.services.compare_focus import focus_findings_for_question
+
         q = (question or "").lower()
+        # Keep template explain/remediation tight to class-relevant rows
+        if intent in {"explain", "remediation", "general"}:
+            focused = focus_findings_for_question(question, findings, max_n=3)
+            if focused:
+                findings = focused
         parts: list[str] = []
 
         if intent == "remediation" and len(findings) >= 2:

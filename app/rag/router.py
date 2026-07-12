@@ -151,6 +151,10 @@ def rule_based_route(question: str) -> RouteResult:
         "the", "any", "this", "that", "which", "what", "exact", "full",
         "api", "all", "each", "every", "same", "other", "related", "affected",
         "vulnerable", "finding", "findings", "not",
+        # verbs/adjectives that follow "endpoints …" without naming a path token
+        "permit", "permits", "allow", "allows", "have", "has", "support",
+        "expose", "exposes", "return", "returns", "accept", "accepts",
+        "require", "requires", "enable", "enables", "use", "uses",
     }
     for m in re.finditer(
         r"\b([a-z][a-z0-9_-]{2,})\s+endpoint\b|"
