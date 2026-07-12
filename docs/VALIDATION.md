@@ -73,7 +73,25 @@ docker compose up --build
 curl http://localhost:8000/health
 ```
 
-**This run:** Docker CLI is installed (`Docker Compose v5.1.4`), but the **Docker daemon was not running** (`docker.sock` unavailable). Image build could not be completed here. Dockerfile copies `app/`, `data/knowledge/`, `data/sample_findings.json`, and `data/heldout_scan.json`. Compose mounts persistent SQLite + Chroma volumes and expects a filled `.env`.
+**Verified (Docker Desktop running):**
+
+```bash
+docker compose build    # OK — image appsec-api
+docker compose up -d    # OK — container appsec-api-1 on :8000
+curl http://localhost:8000/health   # status ok
+```
+
+Smoke inside Docker:
+
+| Step | Result |
+|------|--------|
+| Ingest sample | 15 findings, status ok |
+| CRITICAL query | `FINDING-001`, `FINDING-004` |
+| Ingest held-out | 7 findings |
+| Held-out CRITICAL count | `INV-SQL-12`, `SHIP-AUTH-01`, `SHIP-SSRF-07` |
+| Command injection existence | **abstain** (no false positive) |
+
+Dockerfile copies `app/`, `data/knowledge/`, `data/sample_findings.json`, and `data/heldout_scan.json`. Compose mounts persistent SQLite + Chroma volumes and expects a filled `.env`.
 
 ---
 
