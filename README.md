@@ -42,6 +42,8 @@ Question + scan_id
 
 **Principle:** the LLM **proposes** filters (planner, ambiguous only) and **narrates** answers (generator); the **store decides which findings exist**. Citations are validated server-side.
 
+**Detailed design:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (pipeline, dual store, anti-hallucination, modules).
+
 ### LLM call budget (defaults)
 
 | Path | Calls |
@@ -266,8 +268,8 @@ data/
 tests/
 scripts/
 docs/
-  plan-v0.md
-  STUDY_GUIDE_AND_JUSTIFICATION.md
+  ARCHITECTURE.md
+  VALIDATION.md
 ```
 
 ---
@@ -362,14 +364,15 @@ Design is **surgical**: adapters and helpers over a full rewrite of `RouteResult
 
 ---
 
-## Study guide / design defense
+## Further reading
 
-For architecture justification, tradeoffs, evaluation approach, what’s missing, and viva Q&A, see:
-
-**[`docs/STUDY_GUIDE_AND_JUSTIFICATION.md`](docs/STUDY_GUIDE_AND_JUSTIFICATION.md)**
+| Doc | Contents |
+|-----|----------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Pipeline, dual store, retrieval, anti-hallucination, modules, tradeoffs |
+| [`docs/VALIDATION.md`](docs/VALIDATION.md) | Offline/live/Docker evidence, measured latency, limitations |
 
 ---
 
 ## License / assignment
 
-Take-home implementation for **AppSecure** (PTaaS). Datasets are fictional. OWASP/CWE summaries include official links for citation. **This README is authoritative for the shipped system.**
+Take-home implementation for **AppSecure** (PTaaS). Datasets are fictional. OWASP/CWE summaries include official links for citation. **README + ARCHITECTURE.md** describe the shipped system.

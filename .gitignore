@@ -31,3 +31,7 @@ build/
 .secrets/
 server.log
 
+
+# Internal planning / study materials (not for review repo)
+docs/plan-v0.md
+docs/STUDY_GUIDE_AND_JUSTIFICATION.md
