@@ -1,378 +1,690 @@
-# Architecture
+# Architecture — Vulnerability Explainer RAG (AppSecure)
 
-Vulnerability Explainer RAG (AppSecure) — design for natural-language Q&A over **application security scan findings**.
+Reviewer-facing design document for natural-language Q&A over **application security scan findings**.
 
 **Thesis**
 
 > Structured findings decide what exists. Hybrid retrieval resolves soft language. The LLM explains only verified findings, with server-validated citations.
 
-This document is the reviewer-facing architecture reference. For measured test evidence, see [`VALIDATION.md`](VALIDATION.md).
+| Related docs | Role |
+|--------------|------|
+| [`../README.md`](../README.md) | Runbook, API summary, measured evidence |
+| [`VALIDATION.md`](VALIDATION.md) | Offline / live / Docker validation log |
 
 ---
 
-## 1. Problem and design constraints
+## Table of contents
 
-### 1.1 What the product must do
-
-| Capability | Example |
-|------------|---------|
-| Inventory / filter | “What are all CRITICAL findings?” |
-| Explain | “Explain the IDOR on accounts” |
-| Remediate | “How do I fix the SQL injection…?” |
-| Existence | “Is there RCE?” → abstain if none |
-| Cross-ref | “Which findings map to OWASP A01?” |
-| Compare / summarize | Multi-finding narrative from store rows |
-
-### 1.2 Why pure vector RAG is not enough
-
-| Approach | Failure mode |
-|----------|----------------|
-| Embed full JSON + chat | Incomplete CRITICAL lists; invented IDs/endpoints |
-| LLM free-form counts | “15 CRITICAL” when there are 2 |
-| SQL only | Weak on soft phrasing (“other users’ data”) |
-| Unvalidated LLM citations | Hallucinated `FINDING-*` in answers |
-
-**Solution:** dual store + path split (exact vs soft) + citation gate + existence rules.
+1. [Problem framing](#1-problem-framing)
+2. [System context](#2-system-context)
+3. [Logical architecture (detailed)](#3-logical-architecture-detailed)
+4. [Data model](#4-data-model)
+5. [Ingest pipeline (sequence)](#5-ingest-pipeline-sequence)
+6. [Query pipeline (detailed)](#6-query-pipeline-detailed)
+7. [Exact path vs soft path](#7-exact-path-vs-soft-path)
+8. [Hybrid retrieval internals](#8-hybrid-retrieval-internals)
+9. [Planning, routing, and scope](#9-planning-routing-and-scope)
+10. [Generation and citation gate](#10-generation-and-citation-gate)
+11. [Anti-hallucination stack](#11-anti-hallucination-stack)
+12. [Component / package map](#12-component--package-map)
+13. [Runtime configuration](#13-runtime-configuration)
+14. [Deployment views](#14-deployment-views)
+15. [Failure modes and fail-soft](#15-failure-modes-and-fail-soft)
+16. [Tradeoffs and limitations](#16-tradeoffs-and-limitations)
+17. [Security notes](#17-security-notes)
 
 ---
 
-## 2. High-level architecture
+## 1. Problem framing
+
+### 1.1 Product goal
+
+PTaaS / AppSec scanners emit dense structured findings (severity, CWE, endpoint, evidence, remediation). Users ask natural language questions. The system must:
+
+- list and filter the **complete** inventory for a scan;
+- explain and remediate **only** findings that exist;
+- **abstain** when the scan does not support the claim;
+- attach **citations** that the server can verify.
+
+### 1.2 Required query families
+
+| Family | Example | Correctness risk if wrong |
+|--------|---------|---------------------------|
+| Inventory / count | “How many CRITICAL?” | Invented counts |
+| Filter list | “A01 findings”, “payments endpoint” | Missing or extra rows |
+| Explain / risk | “What’s the risk of the SSRF finding?” | Fabricated impact |
+| Remediate | “How do I fix SQLi in transaction search?” | Wrong fix / wrong finding |
+| Existence | “Is there RCE?” / “command injection?” | False positive presence |
+| Compare / cluster | “Compare the two IDORs” | Cross-finding hallucination |
+
+### 1.3 Why not “embed the JSON and chat”
 
 ```text
-                    ┌─────────────────────────────────────┐
-                    │           FastAPI (app)             │
-                    │  POST /ingest  POST /query          │
-                    │  GET /health   GET /scans/...       │
-                    └─────────────────┬───────────────────┘
+                    pure vector RAG
+Question ──────────────────────────► top-k chunks ──► LLM free-form answer
+                                                         │
+                         fails on: full CRITICAL list, exact counts,
+                         stable IDs, existence (absent classes), citations
+```
+
+| Approach | Typical failure |
+|----------|-----------------|
+| Embed full JSON + chat | Incomplete lists; invented endpoints/IDs |
+| LLM free-form inventory | “15 CRITICAL” when there are 2 |
+| SQL only | Soft phrasing (“other users’ profiles”) weak |
+| Unvalidated LLM citations | Hallucinated finding IDs in text |
+
+**Design response:** dual store (SQLite + Chroma), exact-vs-soft path split, citation gate, subtype-aware existence, fail-closed vector filters.
+
+---
+
+## 2. System context
+
+External actors and systems:
+
+```text
+┌──────────────┐     HTTPS/JSON      ┌──────────────────────────────────┐
+│  Engineer /  │◄───────────────────►│  AppSecure API (this service)    │
+│  PTaaS UI /  │   /ingest, /query   │  FastAPI process                 │
+│  curl/scripts│                     └───────────┬──────────────────────┘
+└──────────────┘                                 │
+                                                 │
+           ┌─────────────────────────────────────┼─────────────────────────┐
+           │                                     │                         │
+           ▼                                     ▼                         ▼
+ ┌─────────────────┐                 ┌───────────────────┐     ┌───────────────────┐
+ │ Local durable   │                 │ Embedding API     │     │ Chat LLM API      │
+ │ state           │                 │ ModelScope        │     │ Cerebras (or any  │
+ │ • SQLite file   │                 │ Qwen3-Embedding   │     │ OpenAI-compatible)│
+ │ • Chroma dir    │                 └───────────────────┘     └───────────────────┘
+ │ • knowledge/*.md│
+ └─────────────────┘
+```
+
+**Trust boundary:** scanner evidence fields are treated as untrusted text inside prompts. API keys live only in environment / `.env` (not in git).
+
+---
+
+## 3. Logical architecture (detailed)
+
+### 3.1 Component diagram
+
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              FastAPI application                           │
+│  ┌─────────────┐  ┌──────────────────┐  ┌─────────────────────────────┐  │
+│  │ api/routes  │  │ api/schemas      │  │ main.py (lifespan: clients, │  │
+│  │ /ingest     │  │ request/response │  │ BM25 warm, settings)        │  │
+│  │ /query      │  └──────────────────┘  └─────────────────────────────┘  │
+│  │ /health     │            │                         │                    │
+│  └──────┬──────┘            │                         │                    │
+│         │                   │                         │                    │
+│  ┌──────▼───────────────────▼─────────────────────────▼─────────────────┐ │
+│  │                     services/query_service.py                        │ │
+│  │  query() essay pipeline:                                            │ │
+│  │    load → route/plan → structured | soft → generate → gate           │ │
+│  │  helpers: citation_select, generation_pool, tool_agent_path          │ │
+│  └──────┬───────────────────┬─────────────────────┬─────────────────────┘ │
+│         │                   │                     │                       │
+│  ┌──────▼──────┐     ┌──────▼──────┐       ┌──────▼──────┐                │
+│  │ rag/        │     │ retrieval/  │       │ clients/    │                │
+│  │ router      │     │ findings_   │       │ embeddings  │                │
+│  │ planner     │     │  store      │       │ llm         │                │
+│  │ generator   │     │ filter_     │       └──────┬──────┘                │
+│  │ citations   │     │  engine     │              │                       │
+│  │ scope       │     │ hybrid      │              │                       │
+│  │ prompts     │     │ bm25_index  │              │                       │
+│  └─────────────┘     │ vector_     │              │                       │
+│                      │  store      │              │                       │
+│                      │ taxonomy    │              │                       │
+│                      │ existence_  │              │                       │
+│                      │  subtype    │              │                       │
+│                      └──────┬──────┘              │                       │
+│  ┌──────────────────┐       │                     │                       │
+│  │ ingestion/       │───────┼─────────────────────┘                       │
+│  │ pipeline         │       │                                             │
+│  │ finding_docs     │       │                                             │
+│  │ knowledge_loader │       │                                             │
+│  └────────┬─────────┘       │                                             │
+└───────────┼─────────────────┼─────────────────────────────────────────────┘
+            │                 │
+            ▼                 ▼
+   ┌────────────────┐  ┌────────────────┐
+   │ SQLite         │  │ Chroma         │
+   │ scans +        │  │ finding +      │
+   │ findings rows  │  │ knowledge docs │
+   └────────────────┘  └────────────────┘
+```
+
+### 3.2 Dual-store responsibility split
+
+```text
+                    ┌─────────────────────────────┐
+                    │        User question        │
+                    └──────────────┬──────────────┘
+                                   │
+              ┌────────────────────┴────────────────────┐
+              │                                         │
+              ▼                                         ▼
+   ┌─────────────────────┐                 ┌─────────────────────────┐
+   │ EXACT / STRUCTURAL  │                 │ SOFT / SEMANTIC         │
+   │                     │                 │                         │
+   │ SQLite FilterEngine │                 │ BM25 ∪ Dense → RRF      │
+   │ complete inventory  │                 │ phrase-aware existence  │
+   │ severity, CWE, path │                 │ catalog-validated plan  │
+   │ IDs, count, top-N   │                 │                         │
+   └──────────┬──────────┘                 └────────────┬────────────┘
+              │                                         │
+              └────────────────────┬────────────────────┘
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │ Finding rows (authoritative)│
+                    │ + optional knowledge chunks │
+                    └──────────────┬──────────────┘
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │ Template and/or LLM explain │
+                    │ → citation gate → response  │
+                    └─────────────────────────────┘
+```
+
+| Store | Technology | Guarantees | Does not guarantee |
+|-------|------------|------------|--------------------|
+| Findings SoR | SQLite | Complete scan membership; exact filters; re-ingest | Soft paraphrase understanding |
+| Vectors | Chroma | Approximate semantic neighbors; knowledge context | Full inventory completeness |
+
+---
+
+## 4. Data model
+
+### 4.1 Relational (SQLite)
+
+```text
+┌──────────────────────────────┐
+│ scans                        │
+├──────────────────────────────┤
+│ scan_id PK                   │
+│ target                       │
+│ scan_timestamp               │
+│ ingested_at                  │
+└──────────────┬───────────────┘
+               │ 1
+               │
+               │ *
+┌──────────────▼───────────────┐
+│ findings                     │
+├──────────────────────────────┤
+│ id PK (surrogate)            │
+│ scan_id FK  ─── index        │
+│ finding_id  ─── unique w/    │
+│                 scan_id      │
+│ title, severity, cwe_id      │
+│ owasp_category, endpoint     │
+│ method, parameter            │
+│ description, evidence_json   │
+│ remediation_hint             │
+└──────────────────────────────┘
+```
+
+Finding IDs are **opaque strings** from the scanner catalog (`FINDING-001`, `SHIP-AUTH-01`, `web:xss:44`, …) — not only a regex.
+
+### 4.2 Vector documents (Chroma)
+
+| Kind | Typical metadata | Purpose |
+|------|------------------|---------|
+| Finding narrative | `doc_type=finding`, `scan_id`, `source_id` (finding_id), severity/cwe… | Soft retrieval of scan rows |
+| Knowledge | `doc_type` ∈ {cwe, owasp, guide, …}, `source_id` | Remediation/context after findings selected |
+
+**Invariant:** knowledge chunks never alone justify “finding X exists.”
+
+### 4.3 In-memory IR
+
+- **BM25 index** over finding text fields (rebuilt on ingest / process start warm).  
+- Optional **cross-encoder** shortlist rerank (disabled by default).
+
+---
+
+## 5. Ingest pipeline (sequence)
+
+```text
+Client                API                 IngestionPipeline           SQLite        Embed API       Chroma        BM25
+  │                    │                         │                      │              │              │            │
+  │ POST /ingest       │                         │                      │              │              │            │
+  │ {scan, refs?}      │                         │                      │              │              │            │
+  │───────────────────►│                         │                      │              │              │            │
+  │                    │ ingest()                │                      │              │              │            │
+  │                    │────────────────────────►│                      │              │              │            │
+  │                    │                         │ replace_scan         │              │              │            │
+  │                    │                         │─────────────────────►│              │              │            │
+  │                    │                         │ delete vectors       │              │              │            │
+  │                    │                         │ by scan_id ─────────────────────────────────────►│            │
+  │                    │                         │ embed narratives     │              │              │            │
+  │                    │                         │─────────────────────────────────────►│              │            │
+  │                    │                         │ upsert finding docs  │              │              │            │
+  │                    │                         │──────────────────────────────────────────────────►│            │
+  │                    │                         │ load knowledge dir   │              │              │            │
+  │                    │                         │ embed + upsert knowledge ──────────────────────────►│            │
+  │                    │                         │ rebuild BM25 all findings ─────────────────────────────────────►│
+  │                    │ IngestResponse          │                      │              │              │            │
+  │◄───────────────────│◄────────────────────────│                      │              │              │            │
+```
+
+**Properties:** per-`scan_id` replace is idempotent; multi-scan coexistence in one DB; knowledge is offline-curated under `data/knowledge/`.
+
+---
+
+## 6. Query pipeline (detailed)
+
+### 6.1 Top-level control flow
+
+```text
+                         POST /query { question, scan_id? }
                                       │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-     ┌────────────────┐    ┌────────────────────┐   ┌─────────────────┐
-     │ Ingestion      │    │ QueryService       │   │ Config /        │
-     │ Pipeline       │    │ (orchestrator)     │   │ OpenAI-compat   │
-     └───────┬────────┘    └─────────┬──────────┘   │ clients         │
-             │                       │              └────────┬────────┘
-             │                       │                       │
-     ┌───────▼────────┐    ┌─────────▼──────────┐            │
-     │ SQLite         │    │ Router + Planner   │◄───────────┤
-     │ (findings)     │◄───│ FilterEngine       │   embed /  │
-     │ system of      │    │ HybridRetriever    │   chat     │
-     │ record         │    │ Generator          │            │
-     └────────────────┘    │ Citation gate      │            │
-                           └─────────┬──────────┘            │
-                                     │                       │
-                           ┌─────────▼──────────┐   ┌────────▼────────┐
-                           │ Chroma             │   │ External APIs   │
-                           │ findings +         │   │ ModelScope emb  │
-                           │ knowledge vectors  │   │ Cerebras LLM    │
-                           │ fail-closed where  │   └─────────────────┘
-                           └────────────────────┘
+                                      ▼
+                         ┌────────────────────────┐
+                         │ Resolve scan_id        │
+                         │ Load all findings +    │
+                         │ endpoint/ID catalog    │
+                         └───────────┬────────────┘
+                                     │
+                     empty inventory?│
+                          yes ───────┼──────► fixed abstain (call /ingest)
+                                     │ no
+                                     ▼
+                         ┌────────────────────────┐
+                         │ rule_based_route       │
+                         │ + soft endpoint resolve│
+                         │ + catalog finding IDs  │
+                         │ + decide_scope         │
+                         └───────────┬────────────┘
+                                     │
+                    out of scope?    │
+                          yes ───────┼──────► product-boundary refusal
+                                     │ no
+                                     ▼
+                         ┌────────────────────────┐
+                         │ optional SemanticPlan  │
+                         │ (if rules not confident)│
+                         │ validate + merge       │
+                         └───────────┬────────────┘
+                                     │
+              ┌──────────────────────┴──────────────────────┐
+              │ precision / structured?                     │ soft
+              ▼                                             ▼
+   ┌─────────────────────┐                    ┌─────────────────────────┐
+   │ apply_filters       │                    │ optional tool agent     │
+   │ (FilterEngine)      │                    │ (default OFF)           │
+   │ subtype existence   │                    │ else HybridRetriever    │
+   │ filter if needed    │                    │ + subtype existence     │
+   └──────────┬──────────┘                    └────────────┬────────────┘
+              │                                            │
+              │                              empty + existence/explain…?
+              │                                   yes ─────┼──► abstain
+              ▼                                            │ no
+   ┌─────────────────────┐                                 ▼
+   │ generator templates │                    ┌─────────────────────────┐
+   │ (count/list/exist)  │                    │ prepare pool + generate │
+   │ or dynamic synth    │                    │ (LLM or template soft)  │
+   └──────────┬──────────┘                    └────────────┬────────────┘
+              │                                            │
+              └──────────────────────┬─────────────────────┘
+                                     ▼
+                         ┌────────────────────────┐
+                         │ select citations       │
+                         │ gate_citations         │
+                         │ build_citations        │
+                         └───────────┬────────────┘
+                                     ▼
+                              QueryResponse
 ```
 
-### 2.1 Dual store
+### 6.2 Orchestrator entry (`QueryService.query`)
 
-| Store | Technology | Role |
-|-------|------------|------|
-| **System of record** | SQLite (SQLAlchemy) | Full inventory, exact filters (severity, CWE, endpoint, IDs), multi-scan isolation via `scan_id` |
-| **Semantic / knowledge** | Chroma (persistent) | Finding narratives + OWASP/CWE/playbook chunks; metadata filters (`scan_id`, `doc_type`) |
+Readable stage list (matches code helpers):
 
-SQLite answers “what is in this scan?” completely.  
-Chroma answers “which chunks are similar to this soft question?”  
-Neither alone solves both inventory and soft language.
+1. Load scan + catalogs  
+2. `_build_route_and_plan`  
+3. `_execute_structured_query` (or `None` if soft)  
+4. Unknown-path abstain (when applicable)  
+5. `try_tool_agent` (default off → always skip)  
+6. `_execute_semantic_query`  
+7. `_generate_response` + citation selection/gate  
 
 ---
 
-## 3. End-to-end query pipeline
+## 7. Exact path vs soft path
+
+### 7.1 When the exact path wins
+
+Precision mode is true when filters are high-confidence, e.g.:
+
+- `want_count` / `top_n`  
+- severity lists for list/existence  
+- strict endpoints / finding IDs  
+- include/exclude phrases or topics for list  
+- path-parameter shape filters  
+
+Then:
 
 ```text
-Question + scan_id
-  → Load selected scan + catalog (IDs, endpoints)
-  → Rule-based structural parse
-  → Catalog-aware finding IDs (any scheme present in the scan)
-  → Scope: structural in / obvious junk out
-  → Exact / precision path?
-       Yes → FilterEngine (SQLite set algebra)
-            → Inventory or existence template
-            → Citation gate
-       No  → Optional semantic planner (ambiguous only)
-            → Validate plan against catalog (rules win on explicit slots)
-            → High-conf in_scope=false → refuse
-            → Planner fail / low-conf → fail open to retrieval
-            → BM25 ∪ dense → RRF (CE off by default)
-            → Optional tool agent (off by default)
-            → Grounded generator or row-bound template (fail-soft)
-            → Citation gate
-  → Response { answer, citations, findings_referenced, abstained, … }
+all findings (scan) ──► FilterEngine ──► rows ──► template/LLM ──► gate
 ```
 
-### 3.1 Stage responsibilities
+**No BM25/dense required** for pure inventory templates.
 
-| Stage | Module(s) | Responsibility |
-|-------|-----------|----------------|
-| HTTP | `app/api/` | Schemas, thin routes |
-| Ingest | `app/ingestion/` | Upsert SQLite, embed findings, index knowledge, rebuild BM25 |
-| Route | `app/rag/router.py` | Explicit operators: severity, CWE, count, top-N, intent cues |
-| Plan | `app/rag/planner.py`, `plan_schema.py` | Soft NL → structured slots; never final answers |
-| Scope | `app/rag/scope.py` | Product boundary (rules first; optional scope LLM off by default) |
-| Filter | `app/retrieval/filter_engine.py` | Deterministic set algebra on finding rows |
-| Hybrid IR | `app/retrieval/hybrid.py`, `bm25_index.py` | BM25 + dense + RRF; phrase-aware existence |
-| Subtype existence | `app/retrieval/existence_subtype.py` | Specific vulns need **direct** row support |
-| Generate | `app/rag/generator.py` | Templates for inventory; LLM for narrative |
-| Citations | `app/rag/citations.py`, `services/citation_select.py` | Server-side ID validation / stripping |
-| Orchestrate | `app/services/query_service.py` (+ helpers) | Essay pipeline composition |
+### 7.2 Soft path
 
-### 3.2 Hard vs soft questions
-
-| Type | Example | Path | Typical LLM calls |
-|------|---------|------|------------------:|
-| Hard | “How many CRITICAL?” | FilterEngine + template | **0** |
-| Structural list | “A01 findings” | SQL / filters | **0** |
-| Existence absent | “Is there RCE?” | Existence search → empty → abstain | **0–1** |
-| Soft explain | “Risk of SSRF…” | Hybrid + generator | **1–2** |
-| Ambiguous soft | Unusual NL | Planner + hybrid + generator | **2** (max ~3 with repair) |
-
-Dedicated multi-round **tool agent** and **scope LLM** exist but are **off by default**.
-
----
-
-## 4. Anti-hallucination controls (layered)
-
-Prompts alone are **not** a control.
-
-| Control | Behavior |
-|---------|----------|
-| **Store as truth** | Only rows in the selected scan can be asserted as findings |
-| **Existence abstention** | No supporting rows → `abstained=true`, no invented IDs |
-| **Subtype existence** | “Command injection” needs command-injection / CWE-78 evidence — not SQLi/XSS via parent “injection” |
-| **Citation gate** | `findings_referenced` ⊆ allowed retrieved/filtered IDs; unknown IDs stripped |
-| **Scan isolation** | Filters and vector `where` always include `scan_id` |
-| **Fail-closed vectors** | Filtered Chroma query failure → empty hits, **never** bare unfiltered retry |
-| **Fail-soft generation** | LLM/embed timeout → BM25/SQL + **store-bound templates**, not multi-minute hang |
-| **Knowledge ≠ presence** | CWE/OWASP playbooks explain verified rows; they do not prove a finding exists |
-| **Untrusted evidence** | Scanner request/response snippets treated as untrusted in prompts |
-
-### 4.1 Specific vs broad existence
+Used for free-text explain/remediate/compare and soft existence without hard slots:
 
 ```text
-specific subtype existence  → strict direct support (title/description/CWE)
-broad family listing        → union of family findings OK
+question ──► (planner?) ──► hybrid retrieve ──► knowledge ──► generate ──► gate
 ```
 
-| Requested | Direct support examples |
-|-----------|-------------------------|
-| Command injection | Command/OS/shell wording, `CWE-78` |
-| SQL injection | SQL injection wording, `CWE-89` |
-| XSS | XSS / cross-site scripting, `CWE-79` |
-| SSRF | SSRF wording, `CWE-918` |
-| RCE | Explicit RCE / code execution wording |
+### 7.3 LLM call budget (defaults)
+
+| Path | Chat LLM calls |
+|------|---------------:|
+| Count / CRITICAL list / A01 / top-N inventory | **0** |
+| Explain/fix with clear structure | **1** (generator) |
+| Soft semantic | **2** (planner + generator) |
+| Unsupported existence | **0–1** |
+| Max normal (+ optional repair) | **≤3** |
+
+Scope LLM and tool agent: **off by default**.
 
 ---
 
-## 5. Retrieval design
+## 8. Hybrid retrieval internals
 
-### 5.1 FilterEngine (exact path)
+```text
+                         free-text question
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ▼                       ▼                       ▼
+ ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+ │ Phrase /    │         │ BM25        │         │ Dense       │
+ │ topic seeds │         │ inverted    │         │ Chroma      │
+ │ from text + │         │ index       │         │ query with  │
+ │ taxonomy    │         │ (lexical)   │         │ where:      │
+ └──────┬──────┘         └──────┬──────┘         │ scan_id +   │
+        │                       │                │ doc_type    │
+        │                       │                └──────┬──────┘
+        │                       │                       │
+        │                       │         embed fail ───┤ empty (fail soft)
+        │                       │                       │
+        └───────────────────────┴───────────────────────┘
+                                │
+                                ▼
+                     Reciprocal Rank Fusion (RRF)
+                                │
+                                ▼
+                     light lexical / severity boost
+                     (optional CE shortlist: OFF by default)
+                                │
+                                ▼
+                     FindingRecord list (scan-bound)
+                                │
+                                ▼
+                     existence_subtype filter (if specific vuln named)
+```
 
-`FilterSpec` dimensions (AND across dimensions, OR within phrases where configured):
+**RRF idea:** combine ranked lists without learning weights — good default for lexical + semantic union.
 
-- Severities include/exclude  
+**Isolation:** dense queries use Chroma `where` including `scan_id`. On filter failure: **return no hits** (fail closed). Never retry unfiltered.
+
+---
+
+## 9. Planning, routing, and scope
+
+### 9.1 Types (roles)
+
+| Type | Role |
+|------|------|
+| `RouteResult` | Explicit user syntax / rules output |
+| `QueryPlan` | Optional semantic interpretation (`in_scope`, slots) |
+| `FilterSpec` | Input to SQLite FilterEngine |
+
+Adapters only: `route_to_filter_spec`, `merge_plan_into_route`, catalog ID/endpoint resolvers. No full schema rename.
+
+### 9.2 Rules
+
+`rule_based_route` extracts:
+
+- severities / exclusions  
 - CWE / OWASP  
-- Endpoint substrings (strict when catalog-resolved)  
-- Finding IDs (catalog-aware, any ID scheme)  
-- Topics / include–exclude phrases  
-- Path-parameter shape, top-N, count  
+- paths and soft endpoint tokens  
+- count / top-N  
+- topics from taxonomy  
+- intent (list, explain, remediation, existence, compare, cluster, …)  
 
-Used for inventory, many existence checks, and high-precision lists.
-
-### 5.2 Hybrid free-text (soft path)
+### 9.3 Planner policy
 
 ```text
-BM25 (lexical)  ∪  dense vectors (semantic)  →  Reciprocal Rank Fusion
+rules confident? ──yes──► skip planner
+       │
+       no
+       ▼
+   LLM → QueryPlan JSON
+       │
+       ├─ high-conf in_scope=false ──► refuse
+       ├─ malformed / timeout / low-conf out ──► fail open → retrieve
+       └─ valid ──► validate vs catalog → merge (rules win hard slots)
 ```
 
-- **BM25:** paths, acronyms, exact tokens  
-- **Dense:** paraphrase (“other users’ accounts”)  
-- **RRF:** simple, no learned fusion weights  
-- **Cross-encoder:** optional (`CROSS_ENCODER_ENABLED=false` by default)  
+Planner **must not** invent finding IDs not in catalog / not typed by the user.
 
-Dense/embed failure fails **soft**: BM25 + phrases only.
+### 9.4 Scope
 
-### 5.3 Knowledge retrieval
-
-OWASP Top 10, CWE notes, and AppSec playbooks are embedded with `doc_type` metadata.  
-Used to improve **explanation/remediation quality** after findings are selected — not as proof of presence.
+1. Structural scan slots → in scope (no LLM)  
+2. Obvious junk (weather, joke, …) → refuse  
+3. Optional scope LLM if enabled (default **false**)  
+4. Else fail open to retrieval; unsupported claims abstain later  
 
 ---
 
-## 6. Planning and routing policy
+## 10. Generation and citation gate
 
-### 6.1 Rules first
+### 10.1 Generator modes
 
-`rule_based_route` extracts high-precision surface form:
+| Mode | Source field | Use |
+|------|--------------|-----|
+| Structured templates | `answer_source=structured` | Counts, lists, existence yes, clusters |
+| LLM JSON | `answer_source=llm` | Explain / remediate / compare |
+| Fail-soft template | `answer_source=template` | LLM timeout / invalid JSON |
+| Abstain | `answer_source=abstain` | No support / out of scope / empty store |
 
-- `CRITICAL` / `not HIGH`  
-- `CWE-89`, `A01`  
-- Paths `/api/...`  
-- Count / top-N language  
-- Intent cues (explain, remediate, existence, compare, cluster)  
+Templates bind **endpoint + parameter + severity + remediation_hint** from store rows — no sample-specific prose packs.
 
-### 6.2 Planner (optional, ambiguous only)
-
-When rules are not confident:
-
-1. LLM emits `QueryPlan` JSON (filters/concepts only — **no final answer**)  
-2. Validate against scan catalog (endpoints, finding IDs)  
-3. Merge with rules: **explicit structural slots always win**  
-4. `in_scope=false` high confidence → refuse  
-5. Malformed / timeout / low-conf out → **fail open** to retrieval  
-
-### 6.3 Catalog-aware IDs
-
-After scan load, finding IDs are matched from the live catalog — not only `FINDING-\d+`  
-(e.g. `SHIP-AUTH-01`, `web:xss:44`, `VULN_2026_91`).
-
----
-
-## 7. Generation and response contract
-
-### 7.1 Generators
-
-| Mode | When | Behavior |
-|------|------|----------|
-| Structured templates | Counts, lists, existence yes-set, clusters | Deterministic from store fields |
-| LLM JSON | Explain / remediate / compare (dynamic on) | Bound to FINDINGS + KNOWLEDGE blocks |
-| Template fail-soft | LLM timeout / bad JSON | Row-bound narrative from store fields |
-
-### 7.2 API response (conceptual)
-
-```json
-{
-  "answer": "...",
-  "citations": [{ "type": "finding|reference", "id": "...", "title": "..." }],
-  "findings_referenced": ["FINDING-001"],
-  "query_intent": "remediation",
-  "grounded": true,
-  "abstained": false,
-  "latency_ms": 800,
-  "answer_source": "structured|llm|template|abstain",
-  "model_used": "gemma-4-31b or null",
-  "scan_id": "scan-20260324-001"
-}
-```
-
-`answer_source=template` after provider failure is intentional fail-soft, not silent invention.
-
----
-
-## 8. Ingestion
+### 10.2 Citation pipeline
 
 ```text
-POST /ingest { scan, optional reference_documents }
-  → replace_scan in SQLite (idempotent per scan_id)
-  → delete prior finding vectors for that scan_id
-  → embed finding narratives → Chroma
-  → upsert knowledge dir (OWASP / CWE / guides)
-  → rebuild BM25 over all findings
+generator findings_referenced
+        │
+        ▼
+ validate ⊆ retrieved/filtered set
+        │
+        ▼
+ intent-aware selection (list keeps full set; explain tightens)
+        │
+        ▼
+ multi-topic compare may restore retrieval union if model under-cites
+        │
+        ▼
+ gate_citations (strip unknown IDs from text + refs)
+        │
+        ▼
+ build_citations (findings + optional knowledge refs)
 ```
-
-Knowledge is offline-curated for deterministic demos; production would sync MITRE/OWASP on a schedule.
 
 ---
 
-## 9. Module map
+## 11. Anti-hallucination stack
+
+Layered defense (outer → inner):
+
+```text
+1. Product scope refuse (junk / empty store)
+2. Exact FilterEngine (cannot invent rows)
+3. Existence + subtype gate (parent family ≠ subtype presence)
+4. Hybrid only returns scan-bound records
+5. Generator prompts: only FINDINGS/KNOWLEDGE context
+6. Server citation gate (IDs must be allowed)
+7. Fail-closed vector filters (no cross-scan leak on error)
+8. Fail-soft templates (no hang → invent loop)
+```
+
+### 11.1 Specific vs broad existence
+
+| Question style | Behavior |
+|----------------|----------|
+| “Is there **command injection**?” | Require direct support (wording / CWE-78); SQLi/XSS insufficient → **abstain** if none |
+| “Which **injection** findings?” | Broad family listing may return SQLi/XSS/SSRF union |
+| “Is there **SQL injection**?” | Direct SQLi / CWE-89 → e.g. FINDING-001 |
+
+Implemented in `app/retrieval/existence_subtype.py` + applied on structured and hybrid existence paths.
+
+---
+
+## 12. Component / package map
 
 ```text
 app/
-  api/           HTTP routes + Pydantic schemas
-  clients/       Embeddings + chat LLM (timeouts, fail-soft)
-  db/            SQLAlchemy models + session
-  ingestion/     Pipeline, finding documents, knowledge loader
-  retrieval/
-    findings_store.py    SQLite access
-    filter_engine.py     Exact set algebra
-    hybrid.py            BM25 + dense + RRF orchestration
-    bm25_index.py        Lexical index + RRF helper
-    existence_subtype.py Strict subtype existence
-    taxonomy.py          AppSec topics → keywords/CWEs
-    vector_store.py      Chroma wrapper (fail-closed filters)
-  rag/
-    router.py, planner.py, plan_schema.py
-    generator.py, prompts.py, citations.py
-    scope.py, tools.py, tool_agent.py (optional path)
-  services/
-    query_service.py     Main pipeline
-    citation_select.py   Post-gen citation policy
-    generation_pool.py   Finding pool caps / seeding
-    tool_agent_path.py   Optional agent isolation
-    pipeline_common.py   Response helpers
+├── main.py                 # lifespan: settings, embed/LLM clients, BM25 warm
+├── config.py               # env-backed Settings
+├── api/
+│   ├── routes.py           # HTTP endpoints
+│   └── schemas.py          # Pydantic contracts
+├── clients/
+│   ├── embeddings.py       # OpenAI-compatible embed + timeouts
+│   └── llm.py              # chat complete + tool path + FakeLLM
+├── db/
+│   ├── models.py           # Scan, Finding
+│   └── session.py
+├── ingestion/
+│   ├── pipeline.py         # orchestrate ingest
+│   ├── finding_documents.py
+│   └── knowledge_loader.py
+├── retrieval/
+│   ├── findings_store.py   # SQL access layer
+│   ├── filter_engine.py    # FilterSpec + apply_filters
+│   ├── hybrid.py           # soft retrieval orchestration
+│   ├── bm25_index.py
+│   ├── vector_store.py     # Chroma fail-closed query
+│   ├── taxonomy.py         # AppSec topics
+│   ├── existence_subtype.py
+│   ├── synonyms.py         # light phrase extraction
+│   ├── endpoint_utils.py
+│   ├── rerank.py / cross_encoder.py  # optional CE
+├── rag/
+│   ├── router.py           # rules
+│   ├── planner.py / plan_schema.py
+│   ├── generator.py / prompts.py
+│   ├── citations.py
+│   ├── scope.py
+│   └── tools.py / tool_agent.py     # optional
+└── services/
+    ├── query_service.py    # main pipeline
+    ├── citation_select.py
+    ├── generation_pool.py
+    ├── tool_agent_path.py
+    └── pipeline_common.py
 ```
 
 ---
 
-## 10. Configuration (defaults)
+## 13. Runtime configuration
 
-| Knob | Default | Meaning |
-|------|---------|---------|
-| `USE_SEMANTIC_PLANNER` | true | Soft NL planning |
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `USE_SEMANTIC_PLANNER` | true | Soft NL → QueryPlan |
 | `USE_DYNAMIC_SYNTHESIS` | true | LLM narrative |
-| `USE_LLM_SCOPE_GATE` | **false** | Dedicated scope LLM off |
-| `USE_TOOL_AGENT` | **false** | Multi-round tools off |
-| `RERANK_MODE` | **light** | RRF + light lexical |
+| `USE_LLM_SCOPE_GATE` | **false** | Dedicated scope LLM |
+| `USE_TOOL_AGENT` | **false** | Multi-round tools |
+| `RERANK_MODE` | **light** | RRF + light boosts |
 | `CROSS_ENCODER_ENABLED` | **false** | Optional CE |
-| `LLM_TIMEOUT_S` | 20 | Chat hang cap |
-| `EMBED_TIMEOUT_S` | 10 | Embed hang cap |
+| `LLM_TIMEOUT_S` | 20 | Chat timeout |
+| `LLM_MAX_RETRIES` | 0 | Provider retries |
+| `EMBED_TIMEOUT_S` | 10 | Embed timeout |
+| `EMBED_MAX_RETRIES` | 0 | Embed retries |
+| `SQLITE_PATH` / `CHROMA_PATH` / `KNOWLEDGE_DIR` | under `./data` | Persistence |
 
-See `.env.example`.
-
----
-
-## 11. Evaluation approach
-
-| Layer | Purpose |
-|-------|---------|
-| Unit tests (fakes) | Filters, citations, isolation, subtypes, fail-soft |
-| Sample scan | Assignment-shaped demo |
-| Held-out scan | Different domain + ID schemes (`SHIP-AUTH-01`, …) |
-| Live suite | `scripts/live_validate.py` against real providers |
-| Docker | `docker compose up --build` + health + ingest smoke |
-
-Emphasize **store-coupling** over sample memorization. Measured numbers and command logs: [`VALIDATION.md`](VALIDATION.md).
+Full list: `.env.example`.
 
 ---
 
-## 12. Tradeoffs and limitations
+## 14. Deployment views
 
-| Tradeoff | Choice | Cost |
-|----------|--------|------|
-| Exact inventory | SQLite first | Soft NL needs hybrid + taxonomy |
-| Soft language | Rules + optional planner + BM25/dense | Unusual paraphrases can miss |
-| Anti-hallucination | Strict gates | Fewer “creative” answers |
-| Latency | Timeouts + templates | Style shifts to template under provider stress |
-| Scope | Single-process demo | No multi-tenant auth/audit |
+### 14.1 Local process
 
-**Known limitations**
+```text
+uvicorn app.main:app
+  ├── data/app.db
+  ├── data/chroma/
+  └── env keys → ModelScope + Cerebras
+```
 
-1. Taxonomy and intent rules are curated, not complete NLU.  
-2. Orchestrator is modular but still centralized.  
-3. Latency depends on embedding/LLM providers (not an SLA).  
-4. Soft paraphrases can abstain or over-retrieve; specific existence is stricter than broad listing.  
-5. Out of take-home scope: multi-tenant auth, live MITRE sync, K8s, frontend.
+### 14.2 Docker Compose
 
-**Natural next steps (product)**
-
-- Broader multi-scan eval sets and CI latency budgets  
-- Stage-level observability  
-- Tenant isolation and audit  
-- Cached / local embeddings for demos  
+```text
+docker compose up --build
+  container: uvicorn :8000
+  volumes: sqlite-data, chroma-data
+  image bakes: app/, knowledge/, sample_findings.json, heldout_scan.json
+  env_file: .env
+```
 
 ---
 
-## 13. Security notes
+## 15. Failure modes and fail-soft
 
-- Treat scanner evidence as attacker-controlled text in prompts.  
-- Never commit `.env` or API keys.  
-- Citations are validated against the selected scan’s findings only.  
-- Vector metadata filters fail closed on error.
+| Failure | Behavior |
+|---------|----------|
+| No findings ingested | Fixed message: call `/ingest` |
+| Out of product scope | Fixed refusal |
+| Existence unsupported | `abstained=true`, empty refs |
+| Specific subtype absent | Abstain (even if parent family has rows) |
+| Chroma filtered query error | Empty hits (fail closed) |
+| Embed timeout/error | Dense empty; BM25/SQL continue |
+| LLM timeout / bad JSON | Row-bound **template** answer + valid IDs |
+| Planner error | Fail open to retrieval |
 
 ---
 
-*This architecture document is authoritative for system design. The root README covers runbooks and measured smoke results; VALIDATION.md records offline/live/Docker evidence.*
+## 16. Tradeoffs and limitations
+
+| Decision | Benefit | Cost |
+|----------|---------|------|
+| SQLite first | Exact inventory, zero ops | Soft NL needs hybrid |
+| Curated taxonomy | Predictable AppSec classes | Incomplete open-domain NL |
+| Rules + optional planner | Low LLM cost on hard ops | Soft mis-routes possible |
+| Strict citations | No free-form ID invent | Tighter answers |
+| Provider timeouts | Bounded latency | More `template` sources under load |
+| Single process demo | Simple take-home | No multi-tenant auth |
+
+**Limitations (honest)**
+
+1. Soft paraphrases can miss or over-retrieve.  
+2. Taxonomy is curated, not live MITRE.  
+3. Orchestrator is modular but still the policy center.  
+4. Latency is provider-dependent (not an SLA).  
+5. Out of scope: multi-tenant auth, audit, K8s, frontend.
+
+**Natural product next steps**
+
+- Broader multi-scan eval + CI budgets  
+- Stage-level metrics  
+- Tenant isolation  
+- Cached / local embeddings  
+
+---
+
+## 17. Security notes
+
+- Treat `evidence` as untrusted.  
+- Never commit `.env` or keys.  
+- Citations validated against selected scan only.  
+- Vector filters fail closed on error.  
+
+---
+
+*Architecture document is authoritative for system design. Runbooks and numbers live in the README and VALIDATION.md.*
