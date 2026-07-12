@@ -11,7 +11,8 @@ Reviewer-facing design document for natural-language Q&A over **application secu
 | [`../README.md`](../README.md) | Runbook, API summary, measured evidence |
 | [`VALIDATION.md`](VALIDATION.md) | Offline / live / Docker validation log |
 
-Diagrams use **Mermaid** (renders natively on GitHub). Overview figure: [`assets/architecture-overview.jpg`](assets/architecture-overview.jpg).
+Diagrams use **Mermaid** (renders natively on GitHub) plus a hand-authored overview SVG ([`assets/architecture-overview.svg`](assets/architecture-overview.svg)) so arrows match the real pipeline (no generative image drift).
+
 
 ---
 
@@ -121,7 +122,10 @@ flowchart TB
 
 ### 3.1 Overview figure
 
-![AppSecure architecture overview](assets/architecture-overview.jpg)
+![AppSecure architecture overview](assets/architecture-overview.svg)
+
+**How to read it:** exact questions take **Route/Plan → FilterEngine → Generator → Citation Gate**. Soft questions take **Route/Plan → Hybrid (BM25∪Dense→RRF) → Generator → Citation Gate**. Hybrid still **resolves rows from SQLite** by finding id. Optional planner and grounded generate call the **chat LLM**; embeddings are used for **ingest** and **dense query** only. The LLM does **not** talk to Chroma directly.
+
 
 ### 3.2 Internal components
 

@@ -94,8 +94,9 @@ Full diagrams, sequences, and module map: **[`docs/ARCHITECTURE.md`](docs/ARCHIT
 ## System overview
 
 <p align="center">
-  <img src="docs/assets/architecture-overview.jpg" alt="AppSecure architecture overview" width="900" />
+  <img src="docs/assets/architecture-overview.svg" alt="AppSecure architecture overview: Client → FastAPI → Route/Plan → exact FilterEngine or soft Hybrid → Generator → Citation Gate → JSON; SQLite exact inventory; Chroma soft+knowledge; ModelScope embeddings; Cerebras chat" width="900" />
 </p>
+
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#e8f4f8', 'primaryTextColor':'#0f172a', 'primaryBorderColor':'#0d9488', 'lineColor':'#334155', 'secondaryColor':'#f0fdf4', 'tertiaryColor':'#fff7ed'}}}%%

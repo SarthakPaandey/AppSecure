@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 640" width="1100" height="640" role="img" aria-label="AppSecure architecture overview">
+  <defs>
+    <style>
+      .title { font: 700 28px system-ui, -apple-system, Segoe UI, sans-serif; fill: #0f172a; }
+      .label { font: 600 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #0f172a; }
+      .small { font: 500 11px system-ui, -apple-system, Segoe UI, sans-serif; fill: #334155; }
+      .tiny { font: 500 10px system-ui, -apple-system, Segoe UI, sans-serif; fill: #475569; }
+      .white { fill: #ffffff; }
+      .box { fill: #f8fafc; stroke: #0f766e; stroke-width: 2; rx: 12; }
+      .box-dark { fill: #0f172a; stroke: #0f172a; stroke-width: 2; rx: 10; }
+      .pill { fill: #14b8a6; }
+      .pill-text { font: 700 11px system-ui, sans-serif; fill: #ffffff; }
+      .tag { fill: #ccfbf1; stroke: #0d9488; stroke-width: 1.5; rx: 10; }
+      .tag-text { font: 700 10px system-ui, sans-serif; fill: #115e59; }
+      .arrow { stroke: #0f766e; stroke-width: 2; fill: none; marker-end: url(#m); }
+      .arrow-soft { stroke: #0d9488; stroke-width: 2; fill: none; stroke-dasharray: 6 4; marker-end: url(#m); }
+      .arrow-gray { stroke: #64748b; stroke-width: 1.8; fill: none; marker-end: url(#m2); }
+    </style>
+    <marker id="m" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#0f766e"/>
+    </marker>
+    <marker id="m2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="640" fill="#ffffff"/>
+  <text x="550" y="42" text-anchor="middle" class="title">AppSecure Vulnerability Explainer RAG</text>
+  <line x1="360" y1="54" x2="740" y2="54" stroke="#14b8a6" stroke-width="3"/>
+
+  <!-- Client -->
+  <rect x="40" y="90" width="160" height="90" class="box"/>
+  <text x="120" y="125" text-anchor="middle" class="label">Client</text>
+  <text x="120" y="148" text-anchor="middle" class="small">curl / scripts / UI</text>
+  <text x="120" y="168" text-anchor="middle" class="tiny">HTTP JSON</text>
+
+  <!-- FastAPI -->
+  <rect x="280" y="80" width="420" height="110" class="box"/>
+  <rect x="280" y="80" width="420" height="34" class="box-dark" rx="12"/>
+  <text x="490" y="102" text-anchor="middle" class="pill-text" style="font-size:14px">FastAPI</text>
+  <rect x="310" y="130" width="100" height="28" class="pill" rx="14"/>
+  <text x="360" y="148" text-anchor="middle" class="pill-text">POST /ingest</text>
+  <rect x="430" y="130" width="100" height="28" class="pill" rx="14"/>
+  <text x="480" y="148" text-anchor="middle" class="pill-text">POST /query</text>
+  <rect x="550" y="130" width="100" height="28" class="pill" rx="14"/>
+  <text x="600" y="148" text-anchor="middle" class="pill-text">GET /health</text>
+
+  <!-- Embeddings -->
+  <rect x="820" y="80" width="240" height="90" class="box"/>
+  <text x="940" y="115" text-anchor="middle" class="label">Embeddings</text>
+  <text x="940" y="138" text-anchor="middle" class="small">ModelScope · Qwen3-Embedding</text>
+  <text x="940" y="158" text-anchor="middle" class="tiny">used on ingest + dense query</text>
+
+  <!-- Chat LLM -->
+  <rect x="820" y="200" width="240" height="90" class="box"/>
+  <text x="940" y="235" text-anchor="middle" class="label">Chat LLM</text>
+  <text x="940" y="258" text-anchor="middle" class="small">Cerebras · gemma (or compatible)</text>
+  <text x="940" y="278" text-anchor="middle" class="tiny">optional planner + grounded generate</text>
+
+  <!-- Pipeline nodes -->
+  <rect x="40" y="300" width="120" height="48" class="box-dark"/>
+  <text x="100" y="330" text-anchor="middle" class="pill-text">Route / Plan</text>
+
+  <!-- diamond decision -->
+  <path d="M220,324 L250,300 L280,324 L250,348 Z" fill="#ecfdf5" stroke="#0f766e" stroke-width="2"/>
+  <text x="250" y="328" text-anchor="middle" class="tiny">path?</text>
+
+  <rect x="320" y="260" width="150" height="48" class="box"/>
+  <text x="395" y="282" text-anchor="middle" class="label">FilterEngine</text>
+  <text x="395" y="298" text-anchor="middle" class="tiny">exact · SQLite set algebra</text>
+
+  <rect x="320" y="340" width="150" height="48" class="box"/>
+  <text x="395" y="362" text-anchor="middle" class="label">Hybrid IR</text>
+  <text x="395" y="378" text-anchor="middle" class="tiny">BM25 ∪ Dense → RRF</text>
+
+  <rect x="540" y="300" width="120" height="48" class="box-dark"/>
+  <text x="600" y="330" text-anchor="middle" class="pill-text">Generator</text>
+
+  <rect x="700" y="300" width="140" height="48" class="box"/>
+  <text x="770" y="322" text-anchor="middle" class="label">Citation Gate</text>
+  <text x="770" y="338" text-anchor="middle" class="tiny">server-side ID check</text>
+
+  <rect x="880" y="300" width="120" height="48" class="box-dark"/>
+  <text x="940" y="330" text-anchor="middle" class="pill-text">JSON response</text>
+
+  <!-- Stores -->
+  <rect x="80" y="460" width="280" height="120" class="box"/>
+  <text x="220" y="490" text-anchor="middle" class="label">SQLite Findings SoR</text>
+  <text x="220" y="515" text-anchor="middle" class="small">severity · CWE · endpoint · finding_id</text>
+  <text x="220" y="535" text-anchor="middle" class="small">complete scan inventory</text>
+  <rect x="150" y="550" width="140" height="22" class="tag"/>
+  <text x="220" y="565" text-anchor="middle" class="tag-text">Exact inventory</text>
+
+  <rect x="420" y="460" width="300" height="120" class="box"/>
+  <text x="570" y="490" text-anchor="middle" class="label">Chroma Vectors</text>
+  <text x="570" y="515" text-anchor="middle" class="small">finding narratives · scan_id isolation</text>
+  <text x="570" y="535" text-anchor="middle" class="small">OWASP / CWE / AppSec guides</text>
+  <rect x="480" y="550" width="180" height="22" class="tag"/>
+  <text x="570" y="565" text-anchor="middle" class="tag-text">Soft language + knowledge</text>
+
+  <!-- Arrows: client to API -->
+  <path class="arrow" d="M200,135 H278"/>
+
+  <!-- API to embeddings -->
+  <path class="arrow-gray" d="M700,110 H818"/>
+  <text x="760" y="100" class="tiny">embed / dense</text>
+
+  <!-- Route flow -->
+  <path class="arrow" d="M100,190 V298"/>
+  <path class="arrow" d="M160,324 H218"/>
+
+  <!-- exact path -->
+  <path class="arrow" d="M250,300 V284 H318"/>
+  <text x="270" y="275" class="tiny">exact</text>
+
+  <!-- soft path -->
+  <path class="arrow-soft" d="M250,348 V364 H318"/>
+  <text x="270" y="390" class="tiny">soft</text>
+
+  <!-- both to generator -->
+  <path class="arrow" d="M470,284 H510 V324 H538"/>
+  <path class="arrow-soft" d="M470,364 H510 V324"/>
+
+  <!-- generator chain -->
+  <path class="arrow" d="M660,324 H698"/>
+  <path class="arrow" d="M840,324 H878"/>
+
+  <!-- FilterEngine to SQLite -->
+  <path class="arrow" d="M360,308 V458"/>
+  <text x="370" y="400" class="tiny">SQL filters</text>
+
+  <!-- Hybrid to SQLite (resolve rows) -->
+  <path class="arrow-soft" d="M340,388 V430 H220 V458"/>
+  <text x="250" y="425" class="tiny">resolve rows by id</text>
+
+  <!-- Hybrid to Chroma (dense) -->
+  <path class="arrow-soft" d="M420,364 H570 V458"/>
+  <text x="500" y="350" class="tiny">dense retrieval</text>
+
+  <!-- knowledge to generator (optional, from Chroma via pipeline) -->
+  <path class="arrow-gray" d="M570,458 V420 H600 V348"/>
+  <text x="620" y="400" class="tiny">optional knowledge</text>
+  <text x="620" y="412" class="tiny">into prompt</text>
+
+  <!-- LLM to Route/Plan (planner) -->
+  <path class="arrow-gray" d="M820,245 H160 V298"/>
+  <text x="700" y="235" class="tiny">optional planner (soft NL only)</text>
+
+  <!-- LLM to Generator -->
+  <path class="arrow-gray" d="M820,260 H600 V298"/>
+  <text x="720" y="280" class="tiny">grounded generate</text>
+
+  <!-- caption -->
+  <text x="550" y="620" text-anchor="middle" class="small">
+    Exact path uses SQLite only · Soft path uses BM25 + dense + SQLite rows · LLM never invents inventory · Citation gate is server-side
+  </text>
+</svg>
