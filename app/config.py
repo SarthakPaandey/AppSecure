@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     use_semantic_planner: bool = True
     planner_model: str = ""  # empty = llm_model
     use_dynamic_synthesis: bool = True
+    # Scope gate: LLM (Gemma) decides if question is about the scan (not keyword-only)
+    use_llm_scope_gate: bool = True
     citation_gate_strict: bool = True
     citation_regen_on_fail: bool = True
 

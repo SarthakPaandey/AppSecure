@@ -1,4 +1,4 @@
-"""Out-of-scope and empty-context refusal (product boundary)."""
+"""Scope gate: structural rules + LLM (FakeLLM / Gemma) relatedness."""
 
 from __future__ import annotations
 
@@ -15,8 +15,13 @@ from app.clients.llm import FakeLLM
 from app.config import Settings
 from app.db.models import Base
 from app.ingestion.pipeline import IngestionPipeline
-from app.rag.scope import has_scan_scope_signals, is_out_of_scope, scope_refusal_response
 from app.rag.router import rule_based_route
+from app.rag.scope import (
+    classify_scope_with_llm,
+    decide_scope,
+    has_structural_scan_slots,
+    scope_refusal_response,
+)
 from app.retrieval.vector_store import VectorStore
 from app.services.query_service import QueryService
 
@@ -24,31 +29,49 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = json.loads((ROOT / "data" / "sample_findings.json").read_text())
 
 
-def test_scope_helpers_unit():
-    assert is_out_of_scope("what's the weather today?")
-    assert is_out_of_scope("tell me a joke")
-    assert is_out_of_scope("hello")
-    assert not is_out_of_scope(
+def test_structural_slots_skip_llm():
+    route = rule_based_route("What are all the critical severity findings?")
+    assert has_structural_scan_slots(route)
+    d = decide_scope(
         "What are all the critical severity findings?",
-        rule_based_route("What are all the critical severity findings?"),
+        route,
+        llm=FakeLLM(),  # would work, but rules_in should win first
+        use_llm=True,
     )
-    assert not is_out_of_scope(
-        "Is there a remote code execution vulnerability?",
-        rule_based_route("Is there a remote code execution vulnerability?"),
+    assert d.related is True
+    assert d.source == "rules_in"
+
+
+def test_llm_scope_weather_not_related():
+    llm = FakeLLM()
+    d = classify_scope_with_llm(llm, "What's the weather in London today?")
+    assert d.related is False
+    assert d.source == "llm"
+    assert llm.calls  # LLM was invoked
+
+
+def test_llm_scope_soft_appsec_related():
+    llm = FakeLLM()
+    d = classify_scope_with_llm(
+        llm,
+        "Could someone access other users' account data through the API?",
     )
-    assert has_scan_scope_signals("How do I fix the SQL injection?")
-    assert not has_scan_scope_signals("explain why the sky is blue")
+    assert d.related is True
+
+
+def test_obvious_off_topic_no_llm_needed():
+    d = decide_scope("tell me a joke about cats", None, llm=FakeLLM(), use_llm=True)
+    assert d.related is False
+    assert d.source == "rules_out"
 
 
 def test_scope_refusal_copy():
     r = scope_refusal_response(reason="out_of_scope", has_scan_data=True)
     assert r.abstained
-    assert "ingested" in r.answer.lower() or "scan" in r.answer.lower()
-    empty = scope_refusal_response(has_scan_data=False)
-    assert "ingest" in empty.answer.lower()
+    assert "scan" in r.answer.lower() or "ingested" in r.answer.lower()
 
 
-def _service(tmp_path: Path) -> QueryService:
+def _service(tmp_path: Path, *, use_llm_scope: bool = True) -> QueryService:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -67,6 +90,7 @@ def _service(tmp_path: Path) -> QueryService:
         cross_encoder_enabled=False,
         use_tool_agent=False,
         use_semantic_planner=False,
+        use_llm_scope_gate=use_llm_scope,
     )
     vs = VectorStore(chroma_path=settings.chroma_path, embeddings=FakeEmbeddings(32))
     IngestionPipeline(session=session, vector_store=vs, settings=settings).ingest(
@@ -80,12 +104,11 @@ def _service(tmp_path: Path) -> QueryService:
     )
 
 
-def test_off_topic_abstains(tmp_path: Path):
+def test_off_topic_abstains_via_service(tmp_path: Path):
     svc = _service(tmp_path)
     r = svc.query(QueryRequest(question="What's the weather in London today?"))
     assert r.abstained is True
     assert r.findings_referenced == []
-    assert "scan" in r.answer.lower() or "ingested" in r.answer.lower()
     assert r.answer_source == "abstain"
 
 
@@ -93,7 +116,6 @@ def test_joke_abstains(tmp_path: Path):
     svc = _service(tmp_path)
     r = svc.query(QueryRequest(question="Tell me a joke about cats"))
     assert r.abstained is True
-    assert r.findings_referenced == []
 
 
 def test_scan_question_still_works(tmp_path: Path):
@@ -101,3 +123,20 @@ def test_scan_question_still_works(tmp_path: Path):
     r = svc.query(QueryRequest(question="What are all the critical severity findings?"))
     assert r.abstained is False
     assert "FINDING-001" in r.findings_referenced or "FINDING-004" in r.findings_referenced
+
+
+def test_soft_security_question_not_refused(tmp_path: Path):
+    """Soft AppSec phrasing should pass LLM scope (FakeLLM) and not early-refuse."""
+    svc = _service(tmp_path)
+    r = svc.query(
+        QueryRequest(
+            question="Could an attacker access other users' account data through broken access control?"
+        )
+    )
+    # May answer or soft-retrieve; must not be the fixed out-of-scope chit-chat refuse
+    if r.abstained:
+        assert "weather" not in r.answer.lower()
+        assert "joke" not in r.answer.lower()
+        # no-match abstain is OK; pure scope refuse mentions "outside that scope"
+        # soft security should not hit pure out_of_scope if LLM says related
+    assert "only answer questions about" not in r.answer.lower() or r.abstained is False

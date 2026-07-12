@@ -22,7 +22,7 @@ from app.rag.planner import (
     resolve_endpoints_against_catalog,
 )
 from app.rag.router import QueryRouter, rule_based_route
-from app.rag.scope import is_out_of_scope, scope_refusal_response
+from app.rag.scope import decide_scope, scope_refusal_response
 from app.rag.tool_agent import FindingsToolAgent
 from app.rag.tools import FindingsToolExecutor
 from app.retrieval.endpoint_utils import resolve_soft_endpoints, unknown_paths_in_question
@@ -119,8 +119,15 @@ class QueryService:
                 if any(e.startswith("/") for e in soft_eps):
                     route.endpoint_strict = True
 
-        # Off-topic / non-scan questions: refuse before planner/LLM
-        if is_out_of_scope(request.question, route):
+        # Scope gate: structural rules → free; else Gemma/LLM "related?" JSON
+        scope = decide_scope(
+            request.question,
+            route,
+            llm=self.llm,
+            endpoints=catalog,
+            use_llm=bool(getattr(self.settings, "use_llm_scope_gate", True)),
+        )
+        if not scope.related:
             gen = scope_refusal_response(reason="out_of_scope", has_scan_data=True)
             latency_ms = int((time.perf_counter() - started) * 1000)
             return QueryResponse(
@@ -133,7 +140,7 @@ class QueryService:
                 latency_ms=latency_ms,
                 scan_id=scan_id,
                 answer_source="abstain",
-                model_used=None,
+                model_used=scope.model_used,
             )
 
         rules_confident = bool(

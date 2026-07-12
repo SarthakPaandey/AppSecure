@@ -383,9 +383,50 @@ class FakeLLM:
                 "max_tokens": max_tokens,
             }
         )
+        sys_l = system.lower()
+        user_l = (user or "").lower()
+        # Scope gate ALWAYS handled here so scripted answer responses are not consumed
+        if response_json and (
+            "scope gate" in sys_l
+            or "in-scope for a security scan" in sys_l
+            or ("related" in sys_l and "off-topic" in sys_l)
+        ):
+            off = any(
+                x in user_l
+                for x in (
+                    "weather",
+                    "joke",
+                    "poem",
+                    "recipe",
+                    "president",
+                    "horoscope",
+                    "netflix",
+                    "bitcoin price",
+                    "capital of",
+                )
+            )
+            q_part = user_l.split("question:", 1)[-1].split("sample endpoints", 1)[0]
+            securityish = bool(
+                re.search(
+                    r"finding|vulnerab|cwe|idor|bola|ssrf|sql|jwt|xss|rce|"
+                    r"severity|critical|endpoint|remediat|fix|scan|auth|"
+                    r"password|rate limit|access control|privilege|account",
+                    q_part,
+                )
+            )
+            chitchat = bool(
+                re.search(r"\b(hi|hello|hey|thanks|thank you)\b", q_part)
+            ) and not securityish
+            related = (not off and not chitchat) and (securityish or len(q_part.strip()) > 40)
+            return json.dumps(
+                {
+                    "related": bool(related),
+                    "confidence": 0.9,
+                    "reason": "fake-scope-gate",
+                }
+            )
         if self.responses:
             return self.responses.pop(0)
-        sys_l = system.lower()
         # Semantic planner: return low-confidence empty plan so tests use rules
         if response_json and "query planner" in sys_l:
             return json.dumps(
