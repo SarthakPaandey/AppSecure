@@ -97,10 +97,16 @@ class VectorStore:
         try:
             result = self._collection.query(**kwargs)
         except Exception as exc:  # noqa: BLE001
-            # Retry without filter if empty match or filter issues
-            logger.warning("vector query with filter failed (%s); retrying bare", exc)
-            kwargs.pop("where", None)
-            result = self._collection.query(**kwargs)
+            # Fail closed: never drop isolation filters (e.g. scan_id).
+            # Retrying bare would leak vectors from other scans / doc types.
+            if where:
+                logger.warning(
+                    "vector query with filter failed (%s); returning no hits (fail-closed)",
+                    exc,
+                )
+                return []
+            logger.warning("vector query failed (%s); returning no hits", exc)
+            return []
 
         hits: list[VectorHit] = []
         ids = (result.get("ids") or [[]])[0]
