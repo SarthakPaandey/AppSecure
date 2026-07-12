@@ -1,28 +1,42 @@
 # Vulnerability Explainer RAG Agent (AppSecure)
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLite](https://img.shields.io/badge/SQLite-SoR-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Chroma](https://img.shields.io/badge/Chroma-vectors-FF6F61?style=for-the-badge)](https://www.trychroma.com/)
+[![Tests](https://img.shields.io/badge/tests-144_passed-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
+[![Live suite](https://img.shields.io/badge/live-43%2F43-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
+[![License](https://img.shields.io/badge/use-take--home-6e7781?style=for-the-badge)](#license--assignment)
+
 RAG-backed **FastAPI** service for natural-language Q&A over **application security scan results** — with **citations**, **hybrid retrieval**, and **hard anti-hallucination controls**.
 
 Think of this as the backend for *“talk to your scan results”* in a PTaaS dashboard: list, explain, remediate, compare, and **abstain** when the scan does not support the claim.
 
-### Thesis
+> [!IMPORTANT]
+> **Thesis** — Structured findings decide what exists. Hybrid retrieval resolves soft language. The LLM explains only verified findings.
 
-> **Structured findings decide what exists. Hybrid retrieval resolves soft language. The LLM explains only verified findings.**
-
-| | |
-|---|---|
+| Layer | Choice |
+|:------|:-------|
 | **API** | FastAPI — `POST /ingest`, `POST /query`, `GET /health`, `GET /scans/{id}/findings` |
 | **Findings store** | **SQLite** — system of record (complete inventory) |
-| **Vector store** | **Chroma** — finding narratives + knowledge; **fail-closed** metadata filters |
-| **Embeddings** | `Qwen/Qwen3-Embedding-8B` via ModelScope (OpenAI-compatible) |
+| **Vector store** | **Chroma** — findings + knowledge; **fail-closed** metadata filters |
+| **Embeddings** | `Qwen/Qwen3-Embedding-8B` (ModelScope, OpenAI-compatible) |
 | **Chat LLM** | Cerebras `gemma-4-31b` (or any OpenAI-compatible base URL) |
-| **Retrieval** | SQL `FilterEngine` + **BM25 ∪ dense → RRF** (cross-encoder optional, off by default) |
-| **Knowledge** | OWASP Top 10 2021, CWEs in the sample, AppSec playbooks |
-| **Deep design** | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| **Evidence log** | [`docs/VALIDATION.md`](docs/VALIDATION.md) |
+| **Retrieval** | SQL `FilterEngine` + **BM25 ∪ dense → RRF** (cross-encoder off by default) |
+| **Knowledge** | OWASP Top 10 2021 · CWEs · AppSec playbooks |
+| **Docs** | [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`VALIDATION.md`](docs/VALIDATION.md) |
 
----
+<p align="center">
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#docker"><strong>Docker</strong></a> ·
+  <a href="#query-pipeline"><strong>Pipeline</strong></a> ·
+  <a href="#anti-hallucination"><strong>Anti-hallucination</strong></a> ·
+  <a href="docs/ARCHITECTURE.md"><strong>Architecture</strong></a> ·
+  <a href="docs/VALIDATION.md"><strong>Validation</strong></a>
+</p>
 
-## Table of contents
+<details>
+<summary><strong>Table of contents</strong></summary>
 
 1. [Why this architecture](#why-this-architecture)
 2. [System overview](#system-overview)
@@ -40,14 +54,19 @@ Think of this as the backend for *“talk to your scan results”* in a PTaaS da
 14. [Known limitations](#known-limitations)
 15. [Security notes](#security-notes)
 
+</details>
+
 ---
 
 ## Why this architecture
 
 Scanner findings are **authoritative structured records**. Pure top‑k vector RAG over JSON fails on full inventory, existence checks, and stable citations.
 
+> [!TIP]
+> **Rule of thumb:** use **SQL** when the question is exact; use **hybrid IR + LLM** when the language is soft; **never** let the model invent inventory.
+
 | Approach | Failure mode on this problem |
-|----------|------------------------------|
+|:---------|:-----------------------------|
 | Embed JSON + chat | Misses full CRITICAL list; invents vulns and IDs |
 | LLM free-form inventory | “15 CRITICAL” when there are 2 |
 | SQL only | Weak on soft phrasing (“other users’ profiles”) |
@@ -74,9 +93,12 @@ Full diagrams, sequences, and module map: **[`docs/ARCHITECTURE.md`](docs/ARCHIT
 
 ## System overview
 
-![Architecture overview](docs/assets/architecture-overview.jpg)
+<p align="center">
+  <img src="docs/assets/architecture-overview.jpg" alt="AppSecure architecture overview" width="900" />
+</p>
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#e8f4f8', 'primaryTextColor':'#0f172a', 'primaryBorderColor':'#0d9488', 'lineColor':'#334155', 'secondaryColor':'#f0fdf4', 'tertiaryColor':'#fff7ed'}}}%%
 flowchart TB
   subgraph Client
     U[Engineer / PTaaS UI / curl]
@@ -88,8 +110,8 @@ flowchart TB
   end
 
   subgraph Stores
-    SQL[(SQLite<br/>findings SoR)]
-    CHR[(Chroma<br/>findings + knowledge)]
+    SQL[(SQLite — findings SoR)]
+    CHR[(Chroma — findings + knowledge)]
   end
 
   subgraph Providers
@@ -105,7 +127,8 @@ flowchart TB
   PIPE <--> LLM
 ```
 
-**Dual store:** SQLite answers “what is in this scan?” completely. Chroma supports soft language and knowledge context. **Knowledge never proves presence** — only finding rows do.
+> [!NOTE]
+> **Dual store** — SQLite answers “what is in this scan?” completely. Chroma supports soft language and knowledge context. **Knowledge never proves presence** — only finding rows do.
 
 More diagrams (ingest sequence, hybrid IR, ER model, fail-soft): **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
@@ -114,6 +137,7 @@ More diagrams (ingest sequence, hybrid IR, ER model, fail-soft): **[`docs/ARCHIT
 ## Query pipeline
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#ecfdf5', 'primaryTextColor':'#064e3b', 'primaryBorderColor':'#059669', 'lineColor':'#475569', 'secondaryColor':'#eff6ff', 'tertiaryColor':'#fef3c7'}}}%%
 flowchart TD
   Q[Question + scan_id] --> L[Load scan + catalog]
   L --> R[Rule-based structure]
@@ -129,7 +153,7 @@ flowchart TD
   H --> S{Supporting findings?}
   S -->|No| ABS[Abstain]
   S -->|Yes| K[Knowledge context]
-  K --> GEN[Grounded generator<br/>or fail-soft template]
+  K --> GEN[Grounded generator or fail-soft template]
   GEN --> G
   G --> RESP[Response]
 ```
@@ -181,7 +205,8 @@ Dedicated **scope LLM** and **tool agent** are **off by default**.
 | Soft explain / remediate | **often &lt; 2 s**; template if LLM fails soft |
 | Live suite p50 / p95 | **~0.5 s / ~1.1 s** (one run — **not an SLA**) |
 
-Provider hang → timeout → **store-bound template**, not multi-minute stall. Latency is **provider-dependent**.
+> [!WARNING]
+> Latency is **provider-dependent** (embeddings + chat APIs). Numbers below are **one measured run**, not an SLA. Provider hang → timeout → **store-bound template**, not multi-minute stall.
 
 ---
 
@@ -238,11 +263,13 @@ Playbooks improve *how* to explain/fix a **verified** finding. They never prove 
 
 ### Prerequisites
 
-- Python 3.11+ (3.12–3.14 also used in validation)
-- **ModelScope** API token (embeddings)
-- **Cerebras** API key (chat / planner) — or any OpenAI-compatible LLM endpoint
+| Need | Notes |
+|:-----|:------|
+| Python **3.11+** | 3.12–3.14 also validated |
+| **ModelScope** API token | Embeddings |
+| **Cerebras** (or OpenAI-compatible) API key | Chat / planner |
 
-### Configure
+### 1. Configure
 
 ```bash
 cp .env.example .env
@@ -253,9 +280,10 @@ cp .env.example .env
 #   LLM_MODEL=gemma-4-31b
 ```
 
-Never commit `.env`. Rotate any key that was pasted into chat or tickets.
+> [!CAUTION]
+> Never commit `.env`. Rotate any key that was pasted into chat or tickets.
 
-### Install & run
+### 2. Install & run
 
 ```bash
 python -m venv .venv
@@ -266,11 +294,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 | URL | Purpose |
-|-----|---------|
+|:----|:--------|
 | http://localhost:8000/docs | OpenAPI interactive docs |
 | http://localhost:8000/health | Liveness + model/stack info |
 
-### Ingest + query
+### 3. Ingest + query
 
 ```bash
 # Ingest sample scan (+ bundled knowledge on first loads)
@@ -296,11 +324,11 @@ curl -s http://localhost:8000/query \
 
 ### Demo scripts
 
-```bash
-./scripts/demo_queries.sh      # assignment-style questions
-./scripts/hard_queries.sh      # adversarial / multi-hop
-./scripts/live_validate.py     # automated live suite (server + keys)
-```
+| Script | Purpose |
+|:-------|:--------|
+| `./scripts/demo_queries.sh` | Assignment-style questions |
+| `./scripts/hard_queries.sh` | Adversarial / multi-hop |
+| `./scripts/live_validate.py` | Automated live suite (server + keys) |
 
 ---
 
@@ -383,7 +411,10 @@ List structured findings for debug / explainability.
 
 ## Configuration
 
-Copy from `.env.example`. Important defaults:
+Copy from `.env.example`.
+
+<details>
+<summary><strong>Important defaults (click to expand)</strong></summary>
 
 ```bash
 USE_SEMANTIC_PLANNER=true    # planner for ambiguous NL only
@@ -399,6 +430,8 @@ EMBED_MAX_RETRIES=0
 ```
 
 Storage paths: `DATA_DIR`, `SQLITE_PATH`, `CHROMA_PATH`, `KNOWLEDGE_DIR`.
+
+</details>
 
 ---
 
@@ -457,15 +490,16 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ### Measured evidence (one environment — **not an SLA**)
 
-```text
-Offline suite:                 144 passed
-Live correctness:              43/43
-README smoke + Docker smoke:   OK
-lat_p50:                       ~0.4–0.6 s
-lat_p95:                       ~1.0–1.1 s
-```
+| Metric | Result |
+|:-------|:-------|
+| Offline suite | **144 passed** |
+| Live correctness | **43 / 43** |
+| README + Docker smoke | **OK** |
+| Latency p50 | **~0.4–0.6 s** |
+| Latency p95 | **~1.0–1.1 s** |
 
-Some soft answers use **`template`** when the chat model times out or returns invalid JSON — intentional **fail-soft** with store-bound citations.
+> [!NOTE]
+> Some soft answers use **`answer_source=template`** when the chat model times out or returns invalid JSON. That is intentional **fail-soft** with store-bound citations — not free invention.
 
 Full commands, paraphrase notes, Docker log: **[`docs/VALIDATION.md`](docs/VALIDATION.md)**.
 
@@ -509,13 +543,14 @@ Evaluation emphasizes **held-out evidence**, not sample memorization:
 
 ## Known limitations
 
-1. **Soft NL is not full NLU** — rules + taxonomy + optional planner; unusual paraphrases can still mis-route or abstain.  
-2. **Provider latency / quotas** — free tiers vary; inventory stays local/SQL; fail-soft templates under stress.  
-3. **Taxonomy is curated** — not live MITRE/OWASP sync.  
-4. **Orchestrator is modular but centralized** — further stage metrics possible.  
-5. **No multi-tenant auth / audit** — out of take-home scope.  
-6. **Cross-encoder optional** — enable via env if needed (`CROSS_ENCODER_ENABLED`, `RERANK_MODE`).  
-7. **Knowledge guides ≠ findings** — playbooks do not invent presence.
+| Area | Limitation |
+|:-----|:-----------|
+| Soft NL | Not full NLU — unusual paraphrases can mis-route or abstain |
+| Providers | Latency / quotas vary; inventory stays local/SQL |
+| Taxonomy | Curated domain knowledge — not live MITRE/OWASP sync |
+| Orchestrator | Modular but still centralized |
+| Product scope | No multi-tenant auth / audit (take-home boundary) |
+| Knowledge | Playbooks explain findings; they do **not** invent presence |
 
 **Roadmap ideas:** broader multi-scan eval + CI latency budgets, stage-level observability, optional multi-tenant productization.
 
@@ -523,9 +558,10 @@ Evaluation emphasizes **held-out evidence**, not sample memorization:
 
 ## Security notes
 
-- Treat scanner **evidence** fields as **untrusted** in prompts.  
-- Never commit `.env` or paste live keys into tickets.  
-- Citation IDs are validated against retrieved/filtered findings for the selected scan only.  
+> [!CAUTION]
+> Treat scanner **evidence** fields as **untrusted** in prompts. Never commit `.env` or paste live keys into tickets.
+
+- Citation IDs are validated against retrieved/filtered findings for the **selected scan** only.  
 - Chroma filtered queries **fail closed** — a broken `where` returns no hits, never unfiltered results.
 
 ---
