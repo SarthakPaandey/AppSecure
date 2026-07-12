@@ -1,0 +1,247 @@
+{
+  "scan_id": "scan-20260324-001",
+  "target": "api.wealthpilot.io",
+  "scan_timestamp": "2026-03-24T14:30:00Z",
+  "findings": [
+    {
+      "id": "FINDING-001",
+      "title": "SQL Injection in Transaction Search",
+      "severity": "CRITICAL",
+      "cwe_id": "CWE-89",
+      "owasp_category": "A03:2021 - Injection",
+      "endpoint": "GET /api/v1/transactions/search",
+      "method": "GET",
+      "parameter": "account_id",
+      "description": "The account_id parameter is directly concatenated into a SQL query without sanitization.",
+      "evidence": {
+        "request": "GET /api/v1/transactions/search?account_id=1' OR '1'='1 HTTP/1.1",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"transactions\": [{\"id\": 4521, ..."
+      },
+      "remediation_hint": "Use parameterized queries or an ORM."
+    },
+    {
+      "id": "FINDING-002",
+      "title": "Broken Object Level Authorization (IDOR) on Account Details",
+      "severity": "HIGH",
+      "cwe_id": "CWE-639",
+      "owasp_category": "A01:2021 - Broken Access Control",
+      "endpoint": "GET /api/v1/accounts/{id}",
+      "method": "GET",
+      "parameter": "id (path)",
+      "description": "Changing the account ID in the URL path allows authenticated users to access other users' account details.",
+      "evidence": {
+        "request": "GET /api/v1/accounts/ACC-1102 HTTP/1.1\nHost: api.wealthpilot.io",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"account_id\": \"ACC-1102\", \"name\": ..."
+      },
+      "remediation_hint": "Implement ownership validation on every resource access."
+    },
+    {
+      "id": "FINDING-003",
+      "title": "Reflected XSS in Portfolio Name",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-79",
+      "owasp_category": "A03:2021 - Injection",
+      "endpoint": "GET /api/v1/portfolios/render",
+      "method": "GET",
+      "parameter": "name",
+      "description": "The portfolio name parameter is reflected in the HTML response without encoding.",
+      "evidence": {
+        "request": "GET /api/v1/portfolios/render?name=<script>alert(document.cookie)</script>",
+        "response_snippet": "HTTP/1.1 200 OK\nContent-Type: text/html\n\n<h1>Portfolio: <script>alert(document.cookie)</script>"
+      },
+      "remediation_hint": "HTML-encode all user input before rendering in HTML content."
+    },
+    {
+      "id": "FINDING-004",
+      "title": "Authentication Bypass via JWT None Algorithm",
+      "severity": "CRITICAL",
+      "cwe_id": "CWE-287",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "POST /api/v1/auth/verify",
+      "method": "POST",
+      "parameter": "Authorization header",
+      "description": "The JWT verification endpoint accepts tokens with the 'none' algorithm.",
+      "evidence": {
+        "request": "POST /api/v1/auth/verify HTTP/1.1\nAuthorization: Bearer eyJhbGciOiJub25lIn0...",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"valid\": true, \"user\": \"admin\"}"
+      },
+      "remediation_hint": "Explicitly whitelist allowed JWT algorithms. Reject 'none'."
+    },
+    {
+      "id": "FINDING-005",
+      "title": "Sensitive Data Exposure in API Error Response",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-209",
+      "owasp_category": "A04:2021 - Insecure Design",
+      "endpoint": "POST /api/v1/payments/initiate",
+      "method": "POST",
+      "parameter": "N/A",
+      "description": "When a payment fails, the error response includes internal data and stack traces.",
+      "evidence": {
+        "request": "POST /api/v1/payments/initiate HTTP/1.1\n\n{\"amount\": -1, ...}",
+        "response_snippet": "HTTP/1.1 500 Internal Server Error\n\n{\"error\": \"PG::...\"}"
+      },
+      "remediation_hint": "Return generic error messages to clients. Log detailed errors server-side."
+    },
+    {
+      "id": "FINDING-006",
+      "title": "Missing Rate Limiting on Login Endpoint",
+      "severity": "HIGH",
+      "cwe_id": "CWE-307",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "POST /api/v1/auth/login",
+      "method": "POST",
+      "parameter": "N/A",
+      "description": "The login endpoint allows unlimited authentication attempts without rate limiting.",
+      "evidence": {
+        "request": "500 sequential POST requests to /api/v1/auth/login with varying credentials",
+        "response_snippet": "All 500 requests completed in 23 seconds. No HTTP 429 returned."
+      },
+      "remediation_hint": "Implement rate limiting (e.g., 5 attempts per minute), progressive delays, or account lockout."
+    },
+    {
+      "id": "FINDING-007",
+      "title": "Server-Side Request Forgery (SSRF) in Document Import",
+      "severity": "HIGH",
+      "cwe_id": "CWE-918",
+      "owasp_category": "A10:2021 - Server-Side Request Forgery",
+      "endpoint": "POST /api/v1/documents/import",
+      "method": "POST",
+      "parameter": "source_url",
+      "description": "The document import feature fetches a URL provided by the user without validation.",
+      "evidence": {
+        "request": "POST /api/v1/documents/import HTTP/1.1\n\n{\"source_url\": \"http://169.254.169.254/...\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"content\": \"...AccessKeyId...\"}"
+      },
+      "remediation_hint": "Validate and whitelist allowed URL schemes and destinations. Block private IP ranges."
+    },
+    {
+      "id": "FINDING-008",
+      "title": "Insecure Direct Object Reference in Document Download",
+      "severity": "HIGH",
+      "cwe_id": "CWE-639",
+      "owasp_category": "A01:2021 - Broken Access Control",
+      "endpoint": "GET /api/v1/documents/{doc_id}/download",
+      "method": "GET",
+      "parameter": "doc_id (path)",
+      "description": "Document download endpoint does not verify that the requesting user owns the document.",
+      "evidence": {
+        "request": "GET /api/v1/documents/DOC-4401/download HTTP/1.1\nAuthorization: Bearer ...",
+        "response_snippet": "HTTP/1.1 200 OK\nContent-Disposition: attachment; filename=..."
+      },
+      "remediation_hint": "Verify document ownership against the authenticated user before serving the file."
+    },
+    {
+      "id": "FINDING-009",
+      "title": "Weak Password Policy",
+      "severity": "LOW",
+      "cwe_id": "CWE-521",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "POST /api/v1/auth/register",
+      "method": "POST",
+      "parameter": "password",
+      "description": "The registration endpoint accepts passwords as short as 4 characters.",
+      "evidence": {
+        "request": "POST /api/v1/auth/register HTTP/1.1\n\n{\"email\": \"test@test.com\", \"password\": \"1234\"}",
+        "response_snippet": "HTTP/1.1 201 Created\n\n{\"user_id\": \"USR-8812\", ...}"
+      },
+      "remediation_hint": "Enforce minimum 12 characters, complexity rules, and check against breached password lists."
+    },
+    {
+      "id": "FINDING-010",
+      "title": "Missing Security Headers",
+      "severity": "LOW",
+      "cwe_id": "CWE-693",
+      "owasp_category": "A05:2021 - Security Misconfiguration",
+      "endpoint": "ALL",
+      "method": "ALL",
+      "parameter": "N/A",
+      "description": "The application does not set standard security headers: Content-Security-Policy, X-Content-Type-Options, Strict-Transport-Security, etc.",
+      "evidence": {
+        "request": "GET / HTTP/1.1",
+        "response_snippet": "HTTP/1.1 200 OK\nContent-Type: text/html\n\n(no security headers present)"
+      },
+      "remediation_hint": "Add standard security headers via middleware or reverse proxy."
+    },
+    {
+      "id": "FINDING-011",
+      "title": "Mass Assignment in User Profile Update",
+      "severity": "HIGH",
+      "cwe_id": "CWE-915",
+      "owasp_category": "A08:2021 - Software and Data Integrity Failures",
+      "endpoint": "PUT /api/v1/users/profile",
+      "method": "PUT",
+      "parameter": "role (body)",
+      "description": "The profile update endpoint blindly binds all request body fields, allowing privilege escalation via role assignment.",
+      "evidence": {
+        "request": "PUT /api/v1/users/profile HTTP/1.1\nAuthorization: Bearer ...\n\n{\"role\": \"admin\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"user_id\": \"USR-8812\", \"name\": ..., \"role\": \"admin\"}"
+      },
+      "remediation_hint": "Use an allowlist of fields that users are permitted to update. Never bind privileged fields from user input."
+    },
+    {
+      "id": "FINDING-012",
+      "title": "Lack of TLS Certificate Validation in Webhook Delivery",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-295",
+      "owasp_category": "A02:2021 - Cryptographic Failures",
+      "endpoint": "Internal - Webhook dispatcher",
+      "method": "POST",
+      "parameter": "N/A",
+      "description": "The webhook delivery mechanism does not validate TLS certificates of the destination.",
+      "evidence": {
+        "request": "Configured webhook URL pointing to a self-signed certificate endpoint",
+        "response_snippet": "Webhook payload containing transaction details delivered successfully"
+      },
+      "remediation_hint": "Enable strict TLS certificate validation. Reject self-signed and invalid certificates."
+    },
+    {
+      "id": "FINDING-013",
+      "title": "GraphQL Introspection Enabled in Production",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-200",
+      "owasp_category": "A05:2021 - Security Misconfiguration",
+      "endpoint": "POST /graphql",
+      "method": "POST",
+      "parameter": "N/A",
+      "description": "GraphQL introspection is enabled, exposing the entire schema in production.",
+      "evidence": {
+        "request": "POST /graphql HTTP/1.1\n\n{\"query\": \"{__schema{types{name,fields{name}}}}\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n\n{\"data\":{\"__schema\":{\"types\":[...]}}}"
+      },
+      "remediation_hint": "Disable introspection in production environments."
+    },
+    {
+      "id": "FINDING-014",
+      "title": "Unrestricted File Upload in KYC Document Submission",
+      "severity": "HIGH",
+      "cwe_id": "CWE-434",
+      "owasp_category": "A04:2021 - Insecure Design",
+      "endpoint": "POST /api/v1/kyc/upload",
+      "method": "POST",
+      "parameter": "file (multipart)",
+      "description": "The KYC upload endpoint accepts any file type without validation or size limits.",
+      "evidence": {
+        "request": "POST /api/v1/kyc/upload HTTP/1.1\nContent-Type: multipart/form-data\n\n(file: shell.php)",
+        "response_snippet": "HTTP/1.1 201 Created\n\n{\"file_id\": \"FILE-9901\", ...}"
+      },
+      "remediation_hint": "Validate file types against an allowlist. Store uploads outside the web root. Scan for malware."
+    },
+    {
+      "id": "FINDING-015",
+      "title": "Hardcoded API Key in Client-Side JavaScript",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-798",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "GET /static/js/app.bundle.js",
+      "method": "GET",
+      "parameter": "N/A",
+      "description": "A third-party payment gateway API key is hardcoded in the client-side JavaScript bundle.",
+      "evidence": {
+        "request": "GET /static/js/app.bundle.js HTTP/1.1",
+        "response_snippet": "...const PAYMENT_API_KEY = 'sk_live_4eC39HqLyjWDarjtT1zdp7dc';..."
+      },
+      "remediation_hint": "Move API keys to server-side. Use a backend proxy for payment operations."
+    }
+  ]
+}

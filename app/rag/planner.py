@@ -1,0 +1,206 @@
+"""Semantic planner: LLM → QueryPlan JSON (rules remain fallback)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.clients.llm import LLMClient, parse_json_response
+from app.rag.plan_schema import QueryPlan
+from app.rag.prompts import PLANNER_SYSTEM, build_planner_user_prompt
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticPlanner:
+    def __init__(
+        self,
+        llm: LLMClient,
+        *,
+        confidence_floor: float = 0.35,
+        enabled: bool = True,
+    ) -> None:
+        self.llm = llm
+        self.confidence_floor = confidence_floor
+        self.enabled = enabled
+
+    def plan(
+        self,
+        question: str,
+        *,
+        endpoints: list[str] | None = None,
+        topic_names: list[str] | None = None,
+    ) -> QueryPlan | None:
+        if not self.enabled or not hasattr(self.llm, "complete"):
+            return None
+        user = build_planner_user_prompt(
+            question=question,
+            endpoints=endpoints or [],
+            topic_names=topic_names or [],
+        )
+        try:
+            raw = self.llm.complete(
+                system=PLANNER_SYSTEM,
+                user=user,
+                temperature=0.0,
+                response_json=True,
+                max_tokens=800,
+            )
+            data = parse_json_response(raw)
+            plan = QueryPlan.model_validate(data)
+            if plan.confidence < self.confidence_floor and not _has_structure(plan):
+                logger.info(
+                    "Planner low confidence %.2f without structure; fallback",
+                    plan.confidence,
+                )
+                return None
+            # Ignore empty soft-only plans that only flip intent to general
+            if (
+                not _has_structure(plan)
+                and plan.intent in {"general", "summary"}
+                and not plan.want_count
+            ):
+                return None
+            return plan
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Semantic planner failed: %s", exc)
+            return None
+
+
+def _has_structure(plan: QueryPlan) -> bool:
+    return bool(
+        plan.include_severities
+        or plan.cwe_ids
+        or plan.endpoint_substrings
+        or plan.include_topics
+        or plan.exclude_topics
+        or plan.finding_ids
+        or plan.want_count
+        or plan.top_n
+        or plan.include_phrases
+        or plan.exclude_phrases
+    )
+
+
+def merge_plan_into_route(rules: Any, plan: QueryPlan | None) -> Any:
+    """Merge LLM plan into rule-based RouteResult (rules win on hard structure).
+
+    Mutates and returns ``rules`` RouteResult for convenience.
+    """
+    if plan is None:
+        return rules
+
+    q_struct = bool(
+        rules.cwe_id
+        or rules.finding_ids
+        or rules.endpoint
+        or (rules.severities and rules.want_count)
+    )
+
+    # Intent: prefer LLM for soft; keep rules for count/top_n/cluster/classify
+    if rules.want_count or rules.answer_mode in {"count", "top_n"}:
+        pass  # keep rule intent
+    elif rules.classify_problem_buckets or rules.intent == "cluster":
+        pass
+    elif plan.intent:
+        # Only override general/list when LLM is more specific
+        if rules.intent in {"general", "list"} or plan.intent in {
+            "explain",
+            "remediation",
+            "compare",
+            "existence",
+            "summary",
+        }:
+            rules.intent = plan.intent
+
+    if plan.answer_mode and not rules.answer_mode:
+        rules.answer_mode = plan.answer_mode
+    if plan.want_count:
+        rules.want_count = True
+        rules.answer_mode = "count"
+    if plan.top_n:
+        rules.top_n = plan.top_n if not rules.top_n else max(rules.top_n, plan.top_n)
+        if not rules.answer_mode:
+            rules.answer_mode = "top_n"
+
+    # Severities: rules win if already set from explicit words; else take LLM
+    if not rules.severities and plan.include_severities:
+        rules.severities = list(plan.include_severities)
+        rules.severity = rules.severities[0]
+    if plan.exclude_severities:
+        rules.exclude_severities = list(
+            dict.fromkeys([*rules.exclude_severities, *plan.exclude_severities])
+        )
+
+    # CWE: explicit rule CWE wins
+    if not rules.cwe_id and plan.cwe_ids:
+        rules.cwe_id = plan.cwe_ids[0]
+    if not rules.owasp and plan.owasp:
+        rules.owasp = plan.owasp
+
+    # Endpoints: union + catalog phrases
+    if plan.endpoint_substrings:
+        rules.endpoint_substrings = list(
+            dict.fromkeys([*rules.endpoint_substrings, *plan.endpoint_substrings])
+        )
+        if plan.endpoint_strict or not rules.endpoint:
+            # soft endpoint from LLM
+            if not rules.endpoint and plan.endpoint_substrings:
+                rules.endpoint = plan.endpoint_substrings[0]
+        rules.endpoint_strict = rules.endpoint_strict or plan.endpoint_strict
+
+    # Topics / phrases
+    if plan.include_topics:
+        rules.topics = list(dict.fromkeys([*getattr(rules, "topics", []), *plan.include_topics]))
+    if plan.exclude_topics:
+        rules.exclude_topics = list(
+            dict.fromkeys(
+                [*getattr(rules, "exclude_topics", []), *plan.exclude_topics]
+            )
+        )
+    if plan.include_phrases:
+        rules.include_phrases = list(
+            dict.fromkeys([*rules.include_phrases, *plan.include_phrases])
+        )
+    if plan.exclude_phrases:
+        rules.exclude_phrases = list(
+            dict.fromkeys([*rules.exclude_phrases, *plan.exclude_phrases])
+        )
+
+    if plan.finding_ids and not rules.finding_ids:
+        rules.finding_ids = list(plan.finding_ids)
+        rules.finding_id = rules.finding_ids[0]
+
+    rules.want_parameter = rules.want_parameter or plan.want_parameter
+    rules.want_endpoint = rules.want_endpoint or plan.want_endpoint
+
+    # Soft confidence: if LLM very low and no structure, leave rules as-is
+    _ = q_struct
+    return rules
+
+
+def resolve_endpoints_against_catalog(
+    substrings: list[str],
+    catalog: list[str],
+) -> list[str]:
+    """Map loose endpoint phrases to scan catalog paths (no hardcoded sample paths)."""
+    if not substrings or not catalog:
+        return list(substrings)
+    resolved: list[str] = []
+    cat_l = [(c, c.lower()) for c in catalog]
+    for sub in substrings:
+        s = (sub or "").lower().strip()
+        if not s:
+            continue
+        # Already a path fragment
+        hits = [c for c, cl in cat_l if s in cl or all(t in cl for t in s.split() if len(t) > 2)]
+        if len(hits) == 1:
+            # use path only
+            path = hits[0].split()[-1] if " " in hits[0] else hits[0]
+            resolved.append(path)
+        elif hits:
+            # multiple: keep original soft phrase
+            resolved.append(sub)
+        else:
+            resolved.append(sub)
+    return list(dict.fromkeys(resolved))

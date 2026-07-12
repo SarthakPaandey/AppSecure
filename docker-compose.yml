@@ -1,0 +1,19 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # Only persist mutable stores — do not mount over /app/data (would hide baked-in knowledge).
+    volumes:
+      - chroma-data:/app/data/chroma
+      - sqlite-data:/app/data/db
+    environment:
+      SQLITE_PATH: /app/data/db/app.db
+      CHROMA_PATH: /app/data/chroma
+      KNOWLEDGE_DIR: /app/data/knowledge
+
+volumes:
+  chroma-data:
+  sqlite-data:
