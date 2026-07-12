@@ -4,31 +4,31 @@
 **Related:** OWASP A07:2021; CWE-287; JWT RFC 7519 / best practices  
 **Reference:** https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
 
-## Why scanners flag this
+## Pattern
 
-If a verify endpoint accepts tokens with `"alg":"none"` (or fails to pin allowed algorithms), attackers can forge a token payload (e.g., `role=admin`) without a signature. This is a classic **authentication bypass**, often CRITICAL on auth services.
+If a verify or accept path trusts the token `alg` header and allows `"alg":"none"` (or fails to pin algorithms), attackers can forge claims without a valid signature. This is classic **authentication bypass**.
 
 ## Root cause pattern
 
-- Library configured to trust the `alg` header from the token.
-- No explicit allowlist of algorithms (e.g., only `RS256` or `HS256`).
+- Library configured to trust `alg` from the token.
+- No explicit allowlist (e.g. only `RS256` or `HS256`).
 - Signature verification skipped when `alg=none`.
 
 ## Exploitation sketch
 
-1. Decode a legitimate JWT; keep or edit claims (`sub`, `role`).
-2. Set header to `{"alg":"none","typ":"JWT"}`.
-3. Send payload with empty signature section as required by the library.
-4. If `/auth/verify` returns `valid: true`, authentication is bypassed.
+1. Decode a legitimate JWT; edit claims as needed (`sub`, `role`, scopes).
+2. Set header to `{"alg":"none","typ":"JWT"}` (or algorithm-confusion variants).
+3. Send payload with empty / omitted signature section as required by the library.
+4. If the verify endpoint returns valid/authenticated, identity is forged.
 
 ## Remediation checklist
 
-- **Allowlist** algorithms server-side; never take `alg` from untrusted input as authority.
+- **Allowlist** algorithms server-side; never treat client `alg` as authority.
 - Explicitly **reject** `none` and symmetric/asymmetric confusion cases.
-- Use well-maintained JWT libraries; keep them updated.
-- Short-lived access tokens; validate `exp`, `iss`, `aud` as applicable.
-- Prefer asymmetric keys (RS256/ES256) for distributed services; protect secrets for HS*.
+- Use maintained JWT libraries; keep them updated.
+- Validate `exp`, `iss`, `aud` as applicable; short-lived access tokens.
+- Prefer asymmetric keys (RS256/ES256) for distributed services; protect HS* secrets.
 
 ## AppSec answer guidance
 
-Remediation answers should not say “use JWT” generically — the finding is about **verification policy**. Tie advice to the scan endpoint (e.g., `POST /api/v1/auth/verify`) and “whitelist algorithms; reject none.”
+Remediation is about **verification policy**, not “use JWT.” Tie advice to the finding’s **method/endpoint** and state: whitelist algorithms; reject `none`.

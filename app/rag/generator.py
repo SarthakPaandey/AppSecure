@@ -135,32 +135,11 @@ class AnswerGenerator:
             out.raw = {"source": "structured"}
             return out
 
-        # Special synthesis templates only when dynamic synthesis is off
-        if (
-            not use_dynamic_synthesis
-            and intent == "compare"
-            and self._is_auth_triad_compare(question, findings)
-        ):
-            out = self._template_auth_triad_compare(findings)
+        # Offline / dynamic-off: generic compare from store rows (no demo-specific prose)
+        if not use_dynamic_synthesis and intent == "compare" and findings:
+            out = self._template_compare(findings, question=question)
             out.raw = {"source": "structured"}
             return out
-
-        # SSRF → cloud credentials: template only if dynamic off
-        if (
-            not use_dynamic_synthesis
-            and findings
-            and self._is_ssrf_cloud_question(question)
-        ):
-            ssrf = [
-                f
-                for f in findings
-                if (f.cwe_id or "").upper() == "CWE-918"
-                or "ssrf" in f"{f.title} {f.description}".lower()
-            ]
-            if ssrf:
-                out = self._template_ssrf_cloud(ssrf, knowledge_hits)
-                out.raw = {"source": "structured"}
-                return out
 
         # --- Path B: LLM for explain / remediation / compare / general ---
         data = self._llm_json_with_retry(
@@ -191,7 +170,7 @@ class AnswerGenerator:
                     raw=data,
                 )
 
-        # --- Path C: synthesis-shaped template fallback ---
+        # --- Path C: synthesis-shaped template fallback (binds endpoint/param from rows) ---
         logger.warning("LLM JSON unavailable after retry; using template answer from findings store")
         out = self._template_explain(findings, question=question, intent=intent)
         out.raw = {"source": "template"}
@@ -555,112 +534,54 @@ class AnswerGenerator:
             return notes["CWE-209"]
         return "Can contribute to cross-tenant data exposure if exploited."
 
-    @staticmethod
-    def _is_ssrf_cloud_question(question: str) -> bool:
-        q = (question or "").lower()
-        return "ssrf" in q and any(
-            x in q for x in ("cloud", "credential", "metadata", "evidence")
-        )
-
-    def _template_ssrf_cloud(
-        self,
-        findings: list[FindingRecord],
-        knowledge_hits: list[VectorHit],
+    def _template_compare(
+        self, findings: list[FindingRecord], *, question: str = ""
     ) -> GenerationResult:
-        f = findings[0]
-        lines = [
-            f"**Yes — SSRF here can threaten cloud credentials.**",
-            "",
-            f"### Evidence from the scan (`{f.finding_id}`)",
-            f"- **Severity:** {f.severity} (not required to be CRITICAL for this impact path)",
-            f"- **Endpoint:** {self._fmt_ep(f)}",
-            f"- **Parameter:** `{f.parameter}`",
-            f"- **CWE:** {f.cwe_id}",
-            f"- **What the finding shows:** {f.description}",
-            "",
-            "### Why that implies cloud-credential risk",
-            "The app performs a **server-side HTTP fetch of a user-controlled URL** without "
-            "destination validation. From the server's network position an attacker can aim "
-            "`source_url` at link-local cloud metadata (e.g. `http://169.254.169.254/...`) or "
-            "other internal services. Metadata responses often include temporary cloud credentials "
-            "(`AccessKeyId`, tokens). The finding does **not** need to already show a metadata "
-            "response — the **unvalidated server-side fetch** is the enabling evidence.",
-            "",
-        ]
-        if f.remediation_hint:
-            lines.append(f"**Remediation direction:** {f.remediation_hint}")
-        # Optional knowledge cue
-        for hit in knowledge_hits[:2]:
-            title = str(hit.metadata.get("title") or "")
-            if "ssrf" in title.lower() or "metadata" in title.lower():
-                lines.append("")
-                lines.append(f"(See also knowledge: {title})")
-                break
-        return GenerationResult(
-            answer="\n".join(lines).strip(),
-            findings_referenced=[x.finding_id for x in findings[:3]],
-            reference_ids=["CWE-918", "guide-ssrf_cloud_metadata"],
-            abstained=False,
-        )
-
-    @staticmethod
-    def _is_auth_triad_compare(question: str, findings: list[FindingRecord]) -> bool:
-        q = (question or "").lower()
-        if not (
-            "jwt" in q
-            and "password" in q
-            and ("rate limit" in q or "rate limiting" in q)
-        ):
-            return False
-        # Need at least 2 of the three classes present
-        ids = {f.finding_id for f in findings}
-        return len(ids) >= 2
-
-    def _template_auth_triad_compare(self, findings: list[FindingRecord]) -> GenerationResult:
+        """Compare retrieved findings using store fields only (no sample-specific prose)."""
         ordered = sort_findings(findings)
+        families = [self._control_family(f) for f in ordered[:8]]
+        unique = list(dict.fromkeys(families))
+        same_broad = len(unique) == 1
         lines = [
-            "**Same broad control family, different specific controls.**",
+            (
+                "**Same broad control family, different specific controls.**"
+                if same_broad and len(ordered) >= 2
+                else (
+                    "**Related findings, different control families.**"
+                    if len(unique) > 1
+                    else "**Comparison of retrieved findings.**"
+                )
+            ),
             "",
-            "JWT none, weak password policy, and missing login rate limiting all sit under "
-            "**authentication / session management** (OWASP A07-style identity failures). "
-            "They are **not** three unrelated domains — but they are **not the same bug**: "
-            "each needs a different control.",
-            "",
-            "### Findings",
+            "### Findings (from scan store)",
         ]
-        for f in ordered[:6]:
+        for f in ordered[:8]:
+            param = f"`{f.parameter}`" if f.parameter and f.parameter != "N/A" else "n/a"
             lines.append(
-                f"- **{f.severity}** `{f.finding_id}`: {f.title} ({f.cwe_id}) — "
-                f"{self._auth_control_label(f)}"
+                f"- **{f.severity}** `{f.finding_id}`: {f.title} "
+                f"({self._fmt_ep(f)}; param={param}; {f.cwe_id or 'CWE n/a'}) — "
+                f"family: {self._control_family(f)}"
             )
         lines.extend(
             [
                 "",
                 "### How they relate",
-                "- **Shared family:** prove and protect who the user is (authn/session).",
-                "- **Different controls:** algorithm allowlist for JWT ≠ password complexity "
-                "≠ brute-force rate limiting / lockout.",
-                "- **Chaining:** weak passwords + no rate limit raise credential-stuffing risk; "
-                "JWT `none` is a separate total auth bypass if present.",
+                (
+                    f"- **Shared family:** {unique[0]}. They are not three unrelated domains, "
+                    "but they are **not the same bug** — each needs its own control."
+                    if same_broad and unique
+                    else f"- **Families present:** {', '.join(unique)}."
+                ),
+                "- **Different controls:** fix each finding’s root cause (title/CWE/remediation "
+                "from the row), not a single shared patch unless the family truly unifies them.",
+                "- Bind remediation to **endpoint + parameter** on each row; do not invent fields.",
             ]
         )
         return GenerationResult(
             answer="\n".join(lines).strip(),
-            findings_referenced=[f.finding_id for f in ordered[:6]],
+            findings_referenced=[f.finding_id for f in ordered[:8]],
             abstained=False,
         )
-
-    @staticmethod
-    def _auth_control_label(f: FindingRecord) -> str:
-        blob = f"{f.title or ''} {f.description or ''}".lower()
-        cwe = (f.cwe_id or "").upper()
-        if "jwt" in blob or cwe == "CWE-287":
-            return "token/algorithm verification control"
-        if "password" in blob or cwe == "CWE-521":
-            return "password policy control"
-        if "rate limit" in blob or cwe == "CWE-307":
-            return "brute-force / rate-limit control"
-        return "authentication-related control"
 
     def _template_cluster(self, findings: list[FindingRecord]) -> GenerationResult:
         """Group findings by control family / OWASP+CWE — not by severity alone."""

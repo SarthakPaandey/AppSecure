@@ -59,6 +59,26 @@ def _service(tmp_path: Path, llm: FakeLLM | None = None) -> QueryService:
     )
 
 
+def test_soft_endpoint_resolves_from_catalog():
+    from app.retrieval.endpoint_utils import resolve_soft_endpoints
+
+    catalog = [
+        "POST /api/v1/payments/initiate",
+        "POST /api/v1/auth/login",
+        "GET /api/v1/transactions/search",
+    ]
+    assert resolve_soft_endpoints(
+        "Are there findings on the payments endpoint?", catalog
+    ) == ["/api/v1/payments/initiate"]
+    # "login rate limiting" must not map to login path
+    assert resolve_soft_endpoints(
+        "Compare JWT none and missing login rate limiting", catalog
+    ) == []
+    assert resolve_soft_endpoints("issues on the login page", catalog) == [
+        "/api/v1/auth/login"
+    ]
+
+
 def test_unknown_admin_endpoint_detected():
     store_findings = [
         type("F", (), {"endpoint": "GET /api/v1/accounts/{id}"})(),

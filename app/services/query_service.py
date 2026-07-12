@@ -24,7 +24,7 @@ from app.rag.planner import (
 from app.rag.router import QueryRouter, rule_based_route
 from app.rag.tool_agent import FindingsToolAgent
 from app.rag.tools import FindingsToolExecutor
-from app.retrieval.endpoint_utils import unknown_paths_in_question
+from app.retrieval.endpoint_utils import resolve_soft_endpoints, unknown_paths_in_question
 from app.retrieval.bm25_index import FindingsBM25Index
 from app.retrieval.filter_engine import apply_filters, route_to_filter_spec
 from app.retrieval.findings_store import FindingsStore
@@ -85,6 +85,21 @@ class QueryService:
 
         # Stage A: rules always; optional semantic planner for soft NL only
         route = rule_based_route(request.question)
+        # Map soft NL endpoint cues ("payments endpoint") → live catalog paths
+        catalog = self.findings_store.distinct_endpoints(scan_id)
+        soft_eps = resolve_soft_endpoints(request.question, catalog)
+        if soft_eps:
+            route.endpoint_substrings = list(
+                dict.fromkeys([*route.endpoint_substrings, *soft_eps])
+            )
+            # Prefer catalog path as primary endpoint filter when unambiguous
+            if not route.endpoint and len(soft_eps) == 1 and soft_eps[0].startswith("/"):
+                route.endpoint = soft_eps[0]
+                route.endpoint_strict = True
+            elif soft_eps and not route.endpoint_strict:
+                # Token matched a catalog path → allow strict substring filter
+                if any(e.startswith("/") for e in soft_eps):
+                    route.endpoint_strict = True
         rules_confident = bool(
             route.want_count
             or route.answer_mode in {"count", "top_n"}
@@ -109,7 +124,6 @@ class QueryService:
             )
         )
         if getattr(self.settings, "use_semantic_planner", True) and not rules_confident:
-            catalog = self.findings_store.distinct_endpoints(scan_id)
             plan = self.planner.plan(
                 request.question,
                 endpoints=catalog,
@@ -270,24 +284,12 @@ class QueryService:
                 model_used=None,
             )
 
-        q_early = request.question.lower()
-        # Auth triad + SSRF-impact Qs: store/hybrid templates beat free-form tool synthesis
-        auth_triad_q = (
-            "jwt" in q_early
-            and "password" in q_early
-            and ("rate limit" in q_early or "rate limiting" in q_early)
-        )
-        ssrf_impact_q = "ssrf" in q_early and any(
-            x in q_early for x in ("cloud", "credential", "metadata", "evidence")
-        )
         # Prefer deterministic store templates (faster + no invented CWE/severity)
         skip_agent = bool(
             route.classify_problem_buckets
             or route.top_n
             or route.data_impact
             or route.want_count
-            or auth_triad_q
-            or ssrf_impact_q
             or route.intent in STRUCTURED_INTENTS
             or bool(getattr(route, "exclude_phrases", None))
         )
@@ -523,45 +525,6 @@ class QueryService:
                 findings=_sort_sev(self.findings_store.list_all(scan_id=scan_id)),
                 knowledge_hits=[],
             )
-        elif auth_triad_q:
-            by_id = {}
-            for kw, cwe in (
-                (["jwt", "none"], "CWE-287"),
-                (["password"], "CWE-521"),
-                (["rate limit", "login"], "CWE-307"),
-            ):
-                for f in self.findings_store.search(scan_id=scan_id, cwe_id=cwe):
-                    by_id[f.finding_id] = f
-                for f in self.findings_store.search(scan_id=scan_id, keywords=kw):
-                    by_id.setdefault(f.finding_id, f)
-            retrieval = HybridRetrievalResult(
-                findings=_sort_sev(list(by_id.values())),
-                knowledge_hits=[],
-            )
-        elif ssrf_impact_q:
-            by_id = {
-                f.finding_id: f
-                for f in self.findings_store.search(scan_id=scan_id, cwe_id="CWE-918")
-            }
-            for f in self.findings_store.search(
-                scan_id=scan_id, keywords=["SSRF", "source_url"]
-            ):
-                by_id.setdefault(f.finding_id, f)
-            # Light knowledge for SSRF playbook (optional)
-            knowledge_hits = []
-            try:
-                knowledge_hits = self.retriever._retrieve_knowledge(
-                    question=request.question,
-                    route=route,
-                    findings=list(by_id.values()),
-                    top_k=3,
-                )
-            except Exception:  # noqa: BLE001
-                knowledge_hits = []
-            retrieval = HybridRetrievalResult(
-                findings=_sort_sev(list(by_id.values())),
-                knowledge_hits=knowledge_hits,
-            )
         else:
             retrieval = self.retriever.retrieve(
                 question=request.question,
@@ -651,18 +614,6 @@ class QueryService:
             gen_findings = gen_findings[:4]
         elif route.intent == "cluster":
             gen_findings = gen_findings[:50]
-
-        # SSRF cloud-credentials: ensure CWE-918 finding is in context for hybrid explain
-        if ssrf_impact_q:
-            by_id = {f.finding_id: f for f in gen_findings}
-            for f in self.findings_store.search(scan_id=scan_id, cwe_id="CWE-918"):
-                by_id[f.finding_id] = f
-            for f in self.findings_store.search(
-                scan_id=scan_id, keywords=["SSRF", "source_url"]
-            ):
-                by_id.setdefault(f.finding_id, f)
-            gen_findings = sort_by_severity(list(by_id.values()))[:6]
-            retrieval.findings = gen_findings
 
         gen = self.generator.generate(
             question=request.question,

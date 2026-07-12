@@ -182,7 +182,7 @@ def rule_based_route(question: str) -> RouteResult:
         )
     )
     result.want_parameter = bool(
-        re.search(r"\bparameters?\b|\bsource_url\b|\bquery string\b", q)
+        re.search(r"\bparameters?\b|\bquery string\b|\bquery param", q)
     ) and not result.path_param_only
     result.want_endpoint = bool(
         re.search(r"\bendpoints?\b|\bexact endpoint\b|\bwhich endpoint\b", q)

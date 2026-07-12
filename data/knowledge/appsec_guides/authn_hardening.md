@@ -8,11 +8,11 @@
 
 Scans often surface multiple related auth issues:
 
-| Pattern | Typical finding | Priority driver |
-|---------|-----------------|-----------------|
-| Unlimited login attempts | Missing rate limiting | Credential stuffing / brute force |
-| Short passwords accepted | Weak password policy | Account takeover at scale |
-| Secrets in frontend bundles | Hardcoded API keys | Full key compromise; rotate immediately |
+| Pattern | Typical title cues | Priority driver |
+|---------|-------------------|-----------------|
+| Unlimited auth attempts | Missing rate limiting | Credential stuffing / brute force |
+| Weak password acceptance | Weak password policy | Account takeover at scale |
+| Secrets in client bundles | Hardcoded API keys | Full key compromise; rotate immediately |
 | Broken token verify | JWT `none` / weak validation | Complete auth bypass |
 
 These are different CWEs but the **product risk** is the same class: attackers gain or forge identity.
@@ -20,18 +20,18 @@ These are different CWEs but the **product risk** is the same class: attackers g
 ## Remediation themes
 
 ### Rate limiting & abuse resistance
-- Per-account and per-IP limits on `/login`; progressive delays; CAPTCHA/lockout policy as UX allows.
+- Per-account and per-IP limits on authentication endpoints; progressive delays; lockout/CAPTCHA as UX allows.
 - Monitor anomalous auth traffic; alert on stuffing patterns.
 
 ### Password policy
-- Prefer length (e.g., 12+) and breached-password checks over complex composition rules alone.
-- Support password managers (long passphrases, special characters).
+- Prefer length (e.g. 12+) and breached-password checks over complex composition rules alone.
+- Support password managers (long passphrases).
 
 ### Secrets management
-- Never ship live third-party keys in JS bundles (`sk_live_...`).
-- Server-side proxy for payments; secrets in a vault; rotate any exposed key.
+- Never ship live third-party keys in frontend bundles.
+- Server-side proxy for sensitive third-party calls; secrets in a vault; rotate any exposed key.
 - SCA/secret scanning in CI for bundles and repos.
 
 ## AppSec answer guidance
 
-For “what authentication issues were found?”, group by theme and severity, cite concrete finding IDs, and avoid mixing in unrelated injection findings unless asked.
+For authentication inventory questions, group by theme and severity, cite concrete finding IDs from the store, and avoid mixing unrelated injection findings unless asked.

@@ -214,7 +214,8 @@ def test_template_priority_top_n_exactly_three():
     assert "Top 3" in out.answer
 
 
-def test_template_auth_triad_same_broad_family():
+def test_template_compare_uses_store_fields():
+    """Compare fallback binds endpoint/param from rows — not demo-specific prose."""
     from app.retrieval.findings_store import FindingRecord
 
     findings = [
@@ -270,9 +271,11 @@ def test_template_auth_triad_same_broad_family():
         intent="compare",
         findings=findings,
         knowledge_hits=[],
+        use_dynamic_synthesis=False,
     )
     assert "broad control family" in out.answer.lower() or "same broad" in out.answer.lower()
     assert "different" in out.answer.lower()
+    assert "/auth/verify" in out.answer or "token" in out.answer.lower()
     assert {"FINDING-004", "FINDING-009", "FINDING-006"} <= set(out.findings_referenced)
 
 

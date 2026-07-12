@@ -46,7 +46,7 @@ def _extract_owasp_codes(text: str) -> list[str]:
 GUIDE_TOPICS: dict[str, list[str]] = {
     "api_security_bola_idor": ["idor", "bola", "access control", "authorization", "api"],
     "jwt_none_algorithm": ["jwt", "authentication", "none algorithm", "token"],
-    "ssrf_cloud_metadata": ["ssrf", "metadata", "cloud", "source_url"],
+    "ssrf_cloud_metadata": ["ssrf", "metadata", "cloud", "imds", "url fetch"],
     "sqli_parameterized_queries": ["sql injection", "sqli", "parameterized", "injection"],
     "authn_hardening": ["authentication", "password", "rate limit", "hardcoded", "login"],
     "scanner_finding_interpretation": ["scanner", "finding", "ptaas", "hallucination"],
