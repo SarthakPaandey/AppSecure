@@ -63,7 +63,7 @@ _SOFT_STOP = frozenset(
     }
 )
 
-# Allow "login" / "payments" only when explicitly endpoint-shaped
+# Soft resource token only when explicitly endpoint-shaped ("X endpoint/page/route")
 _ENDPOINT_SHAPED = re.compile(
     r"\b([a-z][a-z0-9_-]{2,})\s+(?:endpoint|page|route|api)\b|"
     r"\b(?:endpoint|page|route)\s+(?:for\s+|on\s+)?([a-z][a-z0-9_-]{2,})\b",
@@ -86,7 +86,7 @@ def extract_soft_endpoint_tokens(question: str) -> list[str]:
         if not tok or tok in _SOFT_STOP:
             continue
         tokens.append(tok)
-    # Explicit "X endpoint/page/route" always accepted (including login/payments)
+    # Explicit "X endpoint/page/route" always accepted (any resource token)
     for m in _ENDPOINT_SHAPED.finditer(q):
         tok = next((g for g in m.groups() if g), "") or ""
         tok = tok.strip("/ ").lower()

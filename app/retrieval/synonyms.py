@@ -38,7 +38,7 @@ _GENERIC_UNIGRAMS = frozenset(
     template reverse shell os deserial deserialization entity xml
     problem problems issue issues data leak leaky customer customers
     pii financial go live production first three
-    risk perspective fintech production go-live
+    risk perspective production go-live
     """.split()
 )
 

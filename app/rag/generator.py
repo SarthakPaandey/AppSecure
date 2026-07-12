@@ -445,31 +445,20 @@ class AnswerGenerator:
 
     @staticmethod
     def _priority_why(f: FindingRecord) -> str:
-        cwe = (f.cwe_id or "").upper()
-        blob = f"{f.title or ''} {f.description or ''}".lower()
-        if cwe == "CWE-89" or "sql injection" in blob:
-            return (
-                "CRITICAL data-plane risk: unauthenticated or low-effort DB query "
-                "manipulation can dump or alter financial/transaction records."
-            )
-        if "jwt" in blob or cwe == "CWE-287":
-            return (
-                "CRITICAL auth bypass: forged tokens break identity for the whole API surface."
-            )
-        if "idor" in blob or cwe == "CWE-639":
-            return (
-                "Direct cross-customer data access (accounts/documents) — high fintech impact."
-            )
-        if "ssrf" in blob or cwe == "CWE-918":
-            return (
-                "Server-side fetches of attacker URLs can reach cloud metadata / internal services."
-            )
-        if "rate limit" in blob or cwe == "CWE-307":
-            return "Enables credential stuffing / account takeover at the login boundary."
-        if "mass assignment" in blob or cwe == "CWE-915":
-            return "Privilege escalation via writable privileged fields (e.g. role)."
-        sev = (f.severity or "").upper()
-        return f"{sev} severity finding on a production-facing control plane."
+        """Why this row is high priority — prefer store fields, not product prose."""
+        sev = (f.severity or "").upper() or "UNKNOWN"
+        cwe = (f.cwe_id or "").strip() or "CWE n/a"
+        ep = f"{(f.method or '').strip()} {(f.endpoint or '').strip()}".strip() or "endpoint n/a"
+        param = (f.parameter or "").strip()
+        title = (f.title or "").strip() or f.finding_id
+        hint = (f.remediation_hint or "").strip()
+        bits = [f"{sev} · {cwe} on `{ep}`"]
+        if param and param.upper() != "N/A":
+            bits.append(f"param `{param}`")
+        bits.append(title)
+        if hint:
+            bits.append(f"hint: {hint}")
+        return " — ".join(bits)
 
     @staticmethod
     def _is_data_impact_finding(f: FindingRecord) -> bool:
@@ -488,17 +477,19 @@ class AnswerGenerator:
     def _template_data_impact(self, findings: list[FindingRecord]) -> GenerationResult:
         ordered = sort_findings(findings)
         lines = [
-            "Findings that can expose **other customers' PII or financial data** "
-            "(or enable that access), ordered by severity:",
+            "Findings that can enable **cross-user / sensitive data exposure** "
+            "(or access that leads there), ordered by severity:",
             "",
         ]
         for f in ordered:
             impact = self._data_impact_note(f)
             lines.append(
                 f"- **{f.severity}** `{f.finding_id}`: {f.title} "
-                f"({self._fmt_ep(f)}; {f.cwe_id})"
+                f"({self._fmt_ep(f)}; param=`{f.parameter}`; {f.cwe_id})"
             )
             lines.append(f"  - **Impact path:** {impact}")
+            if f.description:
+                lines.append(f"  - **Evidence summary:** {f.description}")
         return GenerationResult(
             answer="\n".join(lines).strip(),
             findings_referenced=[f.finding_id for f in ordered],
@@ -507,18 +498,19 @@ class AnswerGenerator:
 
     @staticmethod
     def _data_impact_note(f: FindingRecord) -> str:
+        """Pattern-level impact from CWE/title — no product-specific resources."""
         cwe = (f.cwe_id or "").upper()
         blob = f"{f.title or ''} {f.description or ''}".lower()
         notes = {
-            "CWE-639": "Horizontal access to another customer's objects (accounts/documents).",
-            "CWE-89": "Query injection can dump transaction/account rows from the DB.",
+            "CWE-639": "Horizontal access to another principal's objects (BOLA/IDOR).",
+            "CWE-89": "Query injection can read or alter rows the caller should not see.",
             "CWE-918": (
                 "Server-side URL fetch can reach internal services or cloud metadata; "
-                "may pivot to sensitive stores (even if the finding text does not say 'PII')."
+                "may pivot to sensitive stores."
             ),
-            "CWE-915": "Privilege escalation can unlock admin/data scopes over other users.",
-            "CWE-209": "Verbose errors leak internals that aid further data-targeted attacks.",
-            "CWE-200": "Information exposure increases attack surface against customer data.",
+            "CWE-915": "Mass assignment / property control can escalate privileges or widen data access.",
+            "CWE-209": "Verbose errors leak internals useful for further data-targeted attacks.",
+            "CWE-200": "Information exposure increases attack surface against sensitive data.",
         }
         if cwe in notes:
             return notes[cwe]
@@ -532,7 +524,10 @@ class AnswerGenerator:
             return notes["CWE-915"]
         if "error" in blob or "stack" in blob:
             return notes["CWE-209"]
-        return "Can contribute to cross-tenant data exposure if exploited."
+        # Fall back to row text rather than inventing product context
+        if f.remediation_hint:
+            return f"Store remediation hint: {f.remediation_hint}"
+        return f"See finding description for impact: {(f.description or f.title or '')[:180]}"
 
     def _template_compare(
         self, findings: list[FindingRecord], *, question: str = ""
@@ -673,29 +668,26 @@ class AnswerGenerator:
             if len(families) == 1:
                 family = next(iter(families))
                 parts.append(
-                    f"**Shared remediation approach** for this control family "
-                    f"({family}):"
+                    f"**Shared control family** (`{family}`) — apply a consistent fix "
+                    "pattern across the endpoints below; use each row's remediation hint."
                 )
                 parts.append("")
-                if "idor" in family.lower() or "authorization" in family.lower():
-                    parts.append(
-                        "Implement **one authorization middleware / policy layer** that runs "
-                        "on every object-access route: resolve the authenticated principal, "
-                        "load the target resource, enforce ownership (or RBAC), and deny by "
-                        "default. Apply the same helper to all object IDs in path/body so "
-                        "each IDOR instance is fixed by one shared control."
-                    )
-                else:
-                    parts.append(
-                        "Apply a single consistent control across these findings "
-                        "(shared library/middleware, centralized validation, or common "
-                        "config), then verify each endpoint still enforces it."
-                    )
-                parts.append("")
+                # Union of store remediation hints only (no canned product prose)
+                hints = []
+                for f in findings[:8]:
+                    h = (f.remediation_hint or "").strip()
+                    if h and h not in hints:
+                        hints.append(h)
+                if hints:
+                    parts.append("**Remediation hints from the scan store:**")
+                    for h in hints:
+                        parts.append(f"- {h}")
+                    parts.append("")
                 parts.append("**Findings covered:**")
             else:
                 parts.append(
-                    "Remediation guidance (multiple control families — fix per family):"
+                    "Remediation guidance (multiple control families — fix per family "
+                    "using each finding's store fields):"
                 )
                 parts.append("")
         elif intent == "compare":
@@ -703,12 +695,11 @@ class AnswerGenerator:
                 "**Comparison** (shared root cause vs different resources/controls):"
             )
             parts.append("")
-            # Brief synthesis
             families = {self._control_family(f) for f in findings}
             if len(families) == 1:
                 parts.append(
                     f"These findings share the same control family: **{next(iter(families))}**. "
-                    "They may be the same bug pattern on different resources."
+                    "They may be the same bug pattern on different resources/endpoints."
                 )
             else:
                 parts.append(
@@ -718,21 +709,27 @@ class AnswerGenerator:
                 )
             parts.append("")
         elif intent == "remediation":
-            parts.append("Remediation guidance based on the scan findings:")
+            parts.append(
+                "Remediation guidance based on **scan store fields** "
+                "(endpoint, parameter, remediation_hint):"
+            )
             parts.append("")
         else:
-            parts.append("Explanation based on the scan findings:")
+            parts.append(
+                "Explanation based on **retrieved finding rows** "
+                "(no assumed product paths or parameters):"
+            )
             parts.append("")
 
         for f in findings[:5]:
             parts.append(f"### {f.finding_id}: {f.title}")
             parts.append(f"- **Severity:** {f.severity}")
             parts.append(f"- **Endpoint:** {self._fmt_ep(f)}")
-            parts.append(f"- **Parameter:** {f.parameter}")
+            parts.append(f"- **Parameter:** `{f.parameter}`")
             parts.append(f"- **CWE / OWASP:** {f.cwe_id} · {f.owasp_category}")
             parts.append(f"- **What was found:** {f.description}")
             if f.remediation_hint:
-                parts.append(f"- **Remediation:** {f.remediation_hint}")
+                parts.append(f"- **Remediation (from store):** {f.remediation_hint}")
             parts.append("")
 
         return GenerationResult(

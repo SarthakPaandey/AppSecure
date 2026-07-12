@@ -85,7 +85,7 @@ class QueryService:
 
         # Stage A: rules always; optional semantic planner for soft NL only
         route = rule_based_route(request.question)
-        # Map soft NL endpoint cues ("payments endpoint") → live catalog paths
+        # Map soft NL endpoint cues ("X endpoint" / "Y page") → live catalog paths
         catalog = self.findings_store.distinct_endpoints(scan_id)
         soft_eps = resolve_soft_endpoints(request.question, catalog)
         if soft_eps:

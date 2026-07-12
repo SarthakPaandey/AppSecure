@@ -164,8 +164,9 @@ def rule_based_route(question: str) -> RouteResult:
 
     # --- Abbreviations / keywords from taxonomy ---
     result.keywords = list(dict.fromkeys(expand_abbrev(q)))
+    # AppSec class abbreviations only (not product path names)
     for tok in re.findall(
-        r"\b(jwt|idor|bola|xss|ssrf|sqli|rce|xxe|graphql|kyc|oauth)\b", q
+        r"\b(jwt|idor|bola|xss|ssrf|sqli|rce|xxe|graphql|oauth|csrf)\b", q
     ):
         if tok not in result.keywords:
             result.keywords.append(tok)
