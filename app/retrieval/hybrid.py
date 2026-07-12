@@ -12,11 +12,14 @@ Scales with inverted-index BM25 + top-k dense; SQLite remains system of record.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
 from app.config import Settings
 from app.rag.router import RouteResult, rule_based_route
+
+logger = logging.getLogger(__name__)
 from app.retrieval.bm25_index import FindingsBM25Index, reciprocal_rank_fusion
 from app.retrieval.findings_store import FindingRecord, FindingsStore, sort_by_severity
 from app.retrieval.cross_encoder import CrossEncoderReranker, get_cross_encoder_reranker
@@ -572,15 +575,22 @@ class HybridRetriever:
         except Exception:
             bm25_ids = []
 
-        dense_recs = self._semantic_findings(question, scan_id, top_k=pool_k // 2)
-        dense_ids = [r.finding_id for r in dense_recs]
-        used_semantic = bool(dense_ids)
-        if useful_clauses:
-            for clause in useful_clauses[:6]:
-                for r in self._semantic_findings(clause, scan_id, top_k=3):
-                    if r.finding_id not in dense_ids:
-                        dense_ids.append(r.finding_id)
-                        dense_recs.append(r)
+        # Dense is optional: embed timeout/error → BM25 + phrase only (fail soft)
+        try:
+            dense_recs = self._semantic_findings(question, scan_id, top_k=pool_k // 2)
+            dense_ids = [r.finding_id for r in dense_recs]
+            used_semantic = bool(dense_ids)
+            if useful_clauses and dense_ids:
+                for clause in useful_clauses[:6]:
+                    for r in self._semantic_findings(clause, scan_id, top_k=3):
+                        if r.finding_id not in dense_ids:
+                            dense_ids.append(r.finding_id)
+                            dense_recs.append(r)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Dense hybrid leg failed soft: %s", exc)
+            dense_recs = []
+            dense_ids = []
+            used_semantic = False
 
         phrase_ids = [f.finding_id for f in phrase_hits]
 
@@ -752,6 +762,7 @@ class HybridRetriever:
         scan_id: str | None,
         top_k: int | None = None,
     ) -> list[FindingRecord]:
+        """Dense retrieval; on embed/vector failure returns [] (BM25/phrase still work)."""
         k = top_k or self.settings.default_top_k_findings_semantic
         if scan_id:
             where: dict | None = {"$and": [{"doc_type": "finding"}, {"scan_id": scan_id}]}
@@ -759,10 +770,11 @@ class HybridRetriever:
             where = {"doc_type": "finding"}
         try:
             hits = self.vector_store.query(text=question, top_k=k, where=where)
-        except Exception:
-            hits = self.vector_store.query(
-                text=question, top_k=k, where={"doc_type": "finding"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Dense findings retrieval failed soft (BM25/phrase may remain): %s", exc
             )
+            return []
 
         out: list[FindingRecord] = []
         seen: set[str] = set()
@@ -828,7 +840,11 @@ class HybridRetriever:
         if route.intent in {"remediation", "explain", "compare", "list"}:
             query_text = f"{question} remediation mitigation"
 
-        hits = self.vector_store.query(text=query_text, top_k=max(top_k + 8, 12))
+        try:
+            hits = self.vector_store.query(text=query_text, top_k=max(top_k + 8, 12))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Knowledge retrieval failed soft: %s", exc)
+            return []
 
         cwe_nums = {
             "".join(ch for ch in (f.cwe_id or "") if ch.isdigit())

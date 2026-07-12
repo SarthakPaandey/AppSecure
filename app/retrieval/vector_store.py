@@ -84,28 +84,28 @@ class VectorStore:
     ) -> list[VectorHit]:
         if top_k <= 0:
             return []
-        embedding = self._embeddings.embed([text])[0]
-        kwargs: dict[str, Any] = {
-            "query_embeddings": [embedding],
-            "n_results": min(top_k, max(self.count, 1)),
-            "include": ["documents", "metadatas", "distances"],
-        }
-        if where:
-            kwargs["where"] = where
         if self.count == 0:
             return []
+        # Embed + query in one try: provider hangs/errors fail soft (empty hits).
+        # Never bare-retry without where (isolation).
         try:
+            embedding = self._embeddings.embed([text])[0]
+            kwargs: dict[str, Any] = {
+                "query_embeddings": [embedding],
+                "n_results": min(top_k, max(self.count, 1)),
+                "include": ["documents", "metadatas", "distances"],
+            }
+            if where:
+                kwargs["where"] = where
             result = self._collection.query(**kwargs)
         except Exception as exc:  # noqa: BLE001
-            # Fail closed: never drop isolation filters (e.g. scan_id).
-            # Retrying bare would leak vectors from other scans / doc types.
             if where:
                 logger.warning(
                     "vector query with filter failed (%s); returning no hits (fail-closed)",
                     exc,
                 )
-                return []
-            logger.warning("vector query failed (%s); returning no hits", exc)
+            else:
+                logger.warning("vector query failed (%s); returning no hits", exc)
             return []
 
         hits: list[VectorHit] = []

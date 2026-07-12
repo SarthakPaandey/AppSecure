@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     embedding_base_url: str = "https://api-inference.modelscope.ai/v1"
     modelscope_api_key: str = ""
     embedding_model: str = "Qwen/Qwen3-Embedding-8B"
+    embed_timeout_s: float = 10.0
+    embed_max_retries: int = 0
 
     # LLM (OpenAI-compatible) — default Cerebras Gemma 4
     llm_base_url: str = "https://api.cerebras.ai/v1"
@@ -26,6 +28,9 @@ class Settings(BaseSettings):
     llm_fallback_models: str = ""
     llm_reasoning_effort: str = "none"
     llm_max_tokens: int = 1200
+    # Soft-path fail-soft: hard caps so provider hangs degrade to templates
+    llm_timeout_s: float = 20.0
+    llm_max_retries: int = 0
 
     # Tool-calling cascade (optional; default off)
     tool_llm_model: str = "gemma-4-31b"

@@ -51,11 +51,13 @@ class OpenAICompatibleLLM:
                 "No LLM API key. Set LLM_API_KEY (Cerebras), MODELSCOPE_API_KEY, "
                 "or GROQ_API_KEY. See .env.example."
             )
+        timeout_s = float(getattr(settings, "llm_timeout_s", 20.0) or 20.0)
+        max_retries = int(getattr(settings, "llm_max_retries", 0) or 0)
         self._client = OpenAI(
             base_url=settings.llm_base_url.rstrip("/"),
             api_key=api_key,
-            max_retries=2,
-            timeout=120.0,
+            max_retries=max(0, max_retries),
+            timeout=max(1.0, timeout_s),
         )
         self._models = settings.llm_model_chain()
         self._tool_models = settings.tool_llm_model_chain()
@@ -64,11 +66,13 @@ class OpenAICompatibleLLM:
         self.last_model_used: str | None = None
         self.last_tool_model_used: str | None = None
         logger.info(
-            "LLM client ready base=%s models=%s tool_models=%s reasoning_effort=%s",
+            "LLM client ready base=%s models=%s tool_models=%s reasoning_effort=%s timeout_s=%s retries=%s",
             settings.llm_base_url,
             self._models,
             self._tool_models,
             self._reasoning_effort,
+            timeout_s,
+            max_retries,
         )
 
     @property

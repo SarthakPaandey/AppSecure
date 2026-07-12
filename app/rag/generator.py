@@ -142,6 +142,7 @@ class AnswerGenerator:
             return out
 
         # --- Path B: LLM for explain / remediation / compare / general ---
+        # Timeouts / provider errors → Path C templates (never hang the request)
         data = self._llm_json_with_retry(
             question=question,
             intent=intent,
@@ -170,10 +171,17 @@ class AnswerGenerator:
                     raw=data,
                 )
 
-        # --- Path C: synthesis-shaped template fallback (binds endpoint/param from rows) ---
-        logger.warning("LLM JSON unavailable after retry; using template answer from findings store")
-        out = self._template_explain(findings, question=question, intent=intent)
-        out.raw = {"source": "template"}
+        # --- Path C: row-bound template fallback (timeout / empty / bad JSON) ---
+        logger.warning(
+            "LLM unavailable or invalid; using store template (intent=%s, findings=%s)",
+            intent,
+            len(findings),
+        )
+        if intent == "compare" and findings:
+            out = self._template_compare(findings, question=question)
+        else:
+            out = self._template_explain(findings, question=question, intent=intent)
+        out.raw = {"source": "template", "fallback_reason": "llm_fail_soft"}
         return out
 
     def _llm_json_with_retry(
@@ -212,7 +220,24 @@ class AnswerGenerator:
             broken = raw
             return parse_json_response(raw)
         except Exception as exc1:  # noqa: BLE001
-            logger.warning("LLM JSON attempt 1 failed: %s", exc1)
+            # Timeout / 5xx / empty: one optional repair only if we got partial text
+            logger.warning("LLM JSON attempt 1 failed (fail-soft): %s", exc1)
+            err_l = str(exc1).lower()
+            hard_fail = any(
+                x in err_l
+                for x in (
+                    "timeout",
+                    "timed out",
+                    "all llm models failed",
+                    "connection",
+                    "503",
+                    "502",
+                    "429",
+                )
+            )
+            if hard_fail and not broken:
+                # Don't spend a second provider call on a dead/hung endpoint
+                return None
 
         try:
             repair_user = (
@@ -243,7 +268,7 @@ class AnswerGenerator:
             )
             return parse_json_response(raw2)
         except Exception as exc2:  # noqa: BLE001
-            logger.warning("LLM JSON attempt 2 (repair) failed: %s", exc2)
+            logger.warning("LLM JSON attempt 2 (repair) failed (fail-soft): %s", exc2)
             return None
 
     def _fmt_ep(self, f: FindingRecord) -> str:
