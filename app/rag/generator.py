@@ -805,25 +805,26 @@ def sort_findings(findings: list[FindingRecord]) -> list[FindingRecord]:
 
 
 def abstention_response(question: str, intent: str) -> GenerationResult:
-    q = question.lower()
+    """No matching rows for a scan-scoped question (still in product scope)."""
+    from app.rag.scope import scope_refusal_response
+
+    q = (question or "").lower()
     if intent == "existence" or any(
         x in q for x in ("is there", "are there", "rce", "remote code")
     ):
         answer = (
             "No matching findings were found in the ingested scan data for this question. "
             "In particular, this scan does not contain evidence of the vulnerability type "
-            "you asked about (for example, remote code execution). "
-            "I will not invent findings, endpoints, or severities that are not in the dataset."
+            "you asked about. I will not invent findings, endpoints, or severities that "
+            "are not in the dataset."
         )
-    else:
-        answer = (
-            "No matching findings were found in the ingested scan data for this question. "
-            "I will not invent vulnerabilities, endpoints, or finding IDs that are not present "
-            f"in the dataset. (intent={intent})"
+        return GenerationResult(
+            answer=answer,
+            findings_referenced=[],
+            reference_ids=[],
+            abstained=True,
+            raw={"source": "abstain", "scope_reason": "no_match_existence"},
         )
-    return GenerationResult(
-        answer=answer,
-        findings_referenced=[],
-        reference_ids=[],
-        abstained=True,
-    )
+    if intent == "general":
+        return scope_refusal_response(reason="no_match", has_scan_data=True)
+    return scope_refusal_response(reason="no_match", has_scan_data=True)

@@ -22,6 +22,7 @@ from app.rag.planner import (
     resolve_endpoints_against_catalog,
 )
 from app.rag.router import QueryRouter, rule_based_route
+from app.rag.scope import is_out_of_scope, scope_refusal_response
 from app.rag.tool_agent import FindingsToolAgent
 from app.rag.tools import FindingsToolExecutor
 from app.retrieval.endpoint_utils import resolve_soft_endpoints, unknown_paths_in_question
@@ -83,6 +84,23 @@ class QueryService:
         scan_id = request.scan_id or self.findings_store.latest_scan_id()
         all_findings = self.findings_store.list_all(scan_id=scan_id)
 
+        # Empty store: clear product boundary (no waffle)
+        if not all_findings:
+            gen = scope_refusal_response(reason="out_of_scope", has_scan_data=False)
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            return QueryResponse(
+                answer=gen.answer,
+                citations=[],
+                findings_referenced=[],
+                query_intent="general",
+                grounded=True,
+                abstained=True,
+                latency_ms=latency_ms,
+                scan_id=scan_id,
+                answer_source="abstain",
+                model_used=None,
+            )
+
         # Stage A: rules always; optional semantic planner for soft NL only
         route = rule_based_route(request.question)
         # Map soft NL endpoint cues ("X endpoint" / "Y page") → live catalog paths
@@ -100,6 +118,24 @@ class QueryService:
                 # Token matched a catalog path → allow strict substring filter
                 if any(e.startswith("/") for e in soft_eps):
                     route.endpoint_strict = True
+
+        # Off-topic / non-scan questions: refuse before planner/LLM
+        if is_out_of_scope(request.question, route):
+            gen = scope_refusal_response(reason="out_of_scope", has_scan_data=True)
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            return QueryResponse(
+                answer=gen.answer,
+                citations=[],
+                findings_referenced=[],
+                query_intent=route.intent or "general",
+                grounded=True,
+                abstained=True,
+                latency_ms=latency_ms,
+                scan_id=scan_id,
+                answer_source="abstain",
+                model_used=None,
+            )
+
         rules_confident = bool(
             route.want_count
             or route.answer_mode in {"count", "top_n"}
