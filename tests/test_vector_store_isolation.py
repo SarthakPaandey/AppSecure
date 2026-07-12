@@ -51,3 +51,31 @@ def test_unfiltered_query_failure_also_empty(tmp_path: Path):
     )
     vs._collection.query = MagicMock(side_effect=RuntimeError("chroma down"))  # type: ignore[method-assign]
     assert vs.query(text="anything", top_k=3) == []
+
+
+def test_cross_scan_filter_never_leaks(tmp_path: Path):
+    """Failed filtered query for scan-a must not return scan-b vectors."""
+    vs = VectorStore(chroma_path=tmp_path / "chroma", embeddings=FakeEmbeddings(8))
+    vs.upsert_documents(
+        ids=["a1", "b1"],
+        texts=["scan A SQLi finding", "scan B SQLi finding"],
+        metadatas=[
+            {"scan_id": "scan-a", "doc_type": "finding"},
+            {"scan_id": "scan-b", "doc_type": "finding"},
+        ],
+    )
+
+    def boom(**kwargs):
+        if kwargs.get("where"):
+            raise RuntimeError("where clause unsupported")
+        return {
+            "ids": [["b1"]],
+            "documents": [["scan B SQLi finding"]],
+            "metadatas": [[{"scan_id": "scan-b", "doc_type": "finding"}]],
+            "distances": [[0.01]],
+        }
+
+    vs._collection.query = MagicMock(side_effect=boom)  # type: ignore[method-assign]
+    hits = vs.query(text="SQL injection", top_k=5, where={"scan_id": "scan-a"})
+    assert hits == []
+    assert all("where" in c.kwargs for c in vs._collection.query.call_args_list)

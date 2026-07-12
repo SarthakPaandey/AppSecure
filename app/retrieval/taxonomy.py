@@ -251,7 +251,12 @@ def keywords_for_topic(name: str) -> list[str]:
 
 
 def expand_abbrev(text: str) -> list[str]:
-    """Return expansions for abbreviations present in text (e.g. sqli -> SQL injection)."""
+    """Return expansions for abbreviations present in text (e.g. sqli -> SQL injection).
+
+    Matches whole tokens only so ``rce`` does not fire inside ``resources``.
+    """
+    import re
+
     t = (text or "").lower()
     out: list[str] = []
     seen: set[str] = set()
@@ -268,7 +273,8 @@ def expand_abbrev(text: str) -> list[str]:
         "xxe": ["XXE", "XML external entity"],
     }
     for abbrev, expansions in ABBREV_EXPANSIONS.items():
-        if abbrev in t:
+        # Word-boundary match; allow hyphens in abbrev (sql-i)
+        if re.search(rf"(?<![a-z0-9]){re.escape(abbrev)}(?![a-z0-9])", t):
             for e in expansions:
                 if e not in seen:
                     seen.add(e)

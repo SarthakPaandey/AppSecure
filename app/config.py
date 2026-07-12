@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     use_semantic_planner: bool = True
     planner_model: str = ""  # empty = llm_model
     use_dynamic_synthesis: bool = True
-    # Scope gate: LLM (Gemma) decides if question is about the scan (not keyword-only)
-    use_llm_scope_gate: bool = True
+    # Scope gate LLM off by default — rules + planner in_scope handle product boundary
+    use_llm_scope_gate: bool = False
     citation_gate_strict: bool = True
     citation_regen_on_fail: bool = True
 
@@ -48,14 +48,14 @@ class Settings(BaseSettings):
     chroma_path: Path = Path("./data/chroma")
     knowledge_dir: Path = Path("./data/knowledge")
 
-    # Retrieval defaults
+    # Retrieval defaults (RRF light path; CE optional via env)
     default_top_k_knowledge: int = 6
     default_top_k_findings_semantic: int = 12
     bm25_top_k: int = 40
     rrf_k: int = 60
-    rerank_mode: str = "auto"
+    rerank_mode: str = "light"
     cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    cross_encoder_enabled: bool = True
+    cross_encoder_enabled: bool = False
 
     # Server
     host: str = "0.0.0.0"

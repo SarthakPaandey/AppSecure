@@ -11,6 +11,8 @@ os.environ.setdefault("RERANK_MODE", "light")
 os.environ.setdefault("CROSS_ENCODER_ENABLED", "false")
 # Unit tests use hybrid path; tool-agent is covered in dedicated tests + live suite
 os.environ.setdefault("USE_TOOL_AGENT", "false")
+# Dedicated scope LLM off by default (matches production defaults)
+os.environ.setdefault("USE_LLM_SCOPE_GATE", "false")
 # Planner needs live LLM; unit tests use rules-only routing
 os.environ.setdefault("USE_SEMANTIC_PLANNER", "false")
 os.environ.setdefault("USE_DYNAMIC_SYNTHESIS", "false")
@@ -49,6 +51,7 @@ def settings(tmp_path: Path) -> Settings:
         rerank_mode="light",
         cross_encoder_enabled=False,
         use_tool_agent=False,
+        use_llm_scope_gate=False,
     )
 
 

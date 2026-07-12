@@ -16,6 +16,19 @@ def test_gate_strips_unknown_ids_from_refs_and_text():
     assert gate.ok is False
 
 
+def test_gate_strips_unknown_catalog_style_ids_from_refs_and_text():
+    gate = gate_citations(
+        answer="See SHIP-AUTH-01 and SHIP-AUTH-999; CWE-287 remains relevant.",
+        findings_referenced=["SHIP-AUTH-01", "SHIP-AUTH-999"],
+        allowed_ids={"SHIP-AUTH-01"},
+    )
+    assert gate.findings_referenced == ["SHIP-AUTH-01"]
+    assert "SHIP-AUTH-999" in gate.stripped_ids
+    assert "SHIP-AUTH-999" not in gate.answer
+    assert "SHIP-AUTH-01" in gate.answer
+    assert "CWE-287" in gate.answer
+
+
 def test_gate_ok_when_all_allowed():
     gate = gate_citations(
         answer="FINDING-001 is critical.",

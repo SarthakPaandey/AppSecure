@@ -185,11 +185,19 @@ def decide_scope(
     if use_llm and llm is not None:
         return classify_scope_with_llm(llm, q, endpoints=endpoints)
 
-    # LLM gate off: conservative keyword fallback (legacy)
+    # LLM gate off (default): only structural + obvious-junk rules apply.
+    # Fail open so soft AppSec questions reach planner/retrieval; unsupported
+    # claims abstain later. Planner high-conf in_scope=false can still refuse.
+    if _legacy_keyword_related(q, route):
+        return ScopeDecision(
+            related=True,
+            source="fallback",
+            reason="llm_gate_disabled_keyword",
+        )
     return ScopeDecision(
-        related=_legacy_keyword_related(q, route),
+        related=True,
         source="fallback",
-        reason="llm_gate_disabled",
+        reason="llm_gate_disabled_fail_open",
     )
 
 

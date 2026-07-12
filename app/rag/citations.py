@@ -10,6 +10,16 @@ from app.retrieval.findings_store import FindingRecord
 from app.retrieval.vector_store import VectorHit
 
 
+# Classic FINDING-N IDs plus catalog-style IDs with at least two separators.
+# This remains deliberately narrower than arbitrary words so CWE-89 and prose
+# are not treated as finding citations.
+_FINDING_ID_LIKE_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])(?:FINDING-\d+|(?:[A-Za-z][A-Za-z0-9]*[-_:]){2,}[A-Za-z0-9][A-Za-z0-9:_-]*)(?![A-Za-z0-9])",
+    flags=re.I,
+)
+
+
+
 def validate_finding_ids(
     claimed: list[str] | None,
     retrieved: list[FindingRecord],
@@ -28,11 +38,34 @@ def validate_finding_ids(
     return out
 
 
-def finding_ids_mentioned_in_answer(answer: str) -> list[str]:
-    """Extract FINDING-xxx tokens from answer text (first-appearance order)."""
+def finding_ids_mentioned_in_answer(
+    answer: str,
+    *,
+    catalog_ids: list[str] | None = None,
+) -> list[str]:
+    """Extract finding IDs from answer text (first-appearance order).
+
+    Always matches classic ``FINDING-\\d+``. When ``catalog_ids`` is provided,
+    also matches arbitrary catalog IDs (``SHIP-AUTH-01``, ``web:xss:44``, …).
+    """
     out: list[str] = []
     seen: set[str] = set()
-    for m in re.finditer(r"FINDING-\d+", answer or "", flags=re.I):
+    text = answer or ""
+
+    if catalog_ids:
+        ordered = sorted(set(catalog_ids), key=lambda x: (-len(x), x.upper()))
+        for fid in ordered:
+            if not fid:
+                continue
+            pattern = re.compile(
+                r"(?<![A-Za-z0-9])" + re.escape(fid) + r"(?![A-Za-z0-9])",
+                flags=re.I,
+            )
+            if pattern.search(text) and fid.upper() not in seen:
+                seen.add(fid.upper())
+                out.append(fid)
+
+    for m in re.finditer(r"FINDING-\d+", text, flags=re.I):
         fid = m.group(0).upper()
         if fid not in seen:
             seen.add(fid)
@@ -57,14 +90,10 @@ def gate_citations(
     fill_refs_if_empty: bool = False,
     fill_from: list[str] | None = None,
 ) -> GateResult:
-    """Dual-stage citation gate: refs and in-text FINDING-IDs must be allowed."""
+    """Dual-stage citation gate: refs and in-text finding IDs must be allowed."""
     allowed = {str(a).upper() for a in allowed_ids}
-    # canonical casing from allowed_ids if available
-    canon = {str(a).upper(): str(a) if str(a).startswith("FINDING") else str(a).upper() for a in allowed_ids}
-    for a in allowed_ids:
-        u = str(a).upper()
-        if u.startswith("FINDING-"):
-            canon[u] = u if "-" in u else str(a)
+    # Preserve catalog casing (FINDING-001, SHIP-AUTH-01, web:xss:44, …)
+    canon: dict[str, str] = {str(a).upper(): str(a) for a in allowed_ids}
 
     stripped: list[str] = []
     safe_refs: list[str] = []
@@ -73,12 +102,15 @@ def gate_citations(
         u = str(fid).strip().upper()
         if u in allowed and u not in seen:
             seen.add(u)
-            safe_refs.append(u)
+            safe_refs.append(canon.get(u, str(fid).strip()))
         elif u not in allowed:
             stripped.append(u)
 
     text = answer or ""
-    for m in re.finditer(r"FINDING-\d+", text, flags=re.I):
+    # Detect classic and catalog-style citation-shaped IDs in prose. The latter
+    # deliberately requires two separators, avoiding normal security tokens
+    # such as CWE-89 while covering SHIP-AUTH-01, web:xss:44, and VULN_2026_91.
+    for m in _FINDING_ID_LIKE_TOKEN.finditer(text):
         u = m.group(0).upper()
         if u not in allowed:
             stripped.append(u)
@@ -88,9 +120,10 @@ def gate_citations(
             u = m.group(0).upper()
             return m.group(0) if u in allowed else ""
 
-        text = re.sub(r"FINDING-\d+", _repl, text, flags=re.I)
+        text = _FINDING_ID_LIKE_TOKEN.sub(_repl, text)
         text = re.sub(r"[ \t]{2,}", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
 
     stripped = list(dict.fromkeys(stripped))
     if fill_refs_if_empty and not safe_refs and fill_from:
@@ -98,7 +131,7 @@ def gate_citations(
             u = str(fid).upper()
             if u in allowed and u not in seen:
                 seen.add(u)
-                safe_refs.append(u)
+                safe_refs.append(canon.get(u, str(fid)))
 
     ok = len(stripped) == 0
     return GateResult(
@@ -123,7 +156,9 @@ def filter_citations_to_answer(
     if intent in {"list", "summary", "severity", "cross_ref", "cluster", "existence"}:
         return candidate_ids
 
-    mentioned = finding_ids_mentioned_in_answer(answer)
+    mentioned = finding_ids_mentioned_in_answer(
+        answer, catalog_ids=candidate_ids
+    )
     if not mentioned:
         return candidate_ids
 

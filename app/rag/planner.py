@@ -1,8 +1,14 @@
-"""Semantic planner: LLM → QueryPlan JSON (rules remain fallback)."""
+"""Semantic planner: LLM → QueryPlan JSON (rules remain fallback).
+
+Planner runs only for ambiguous questions. It interprets filters/concepts —
+it never answers. Explicit structural rule slots always win on merge.
+"""
 
 from __future__ import annotations
 
 import logging
+import re
+from dataclasses import dataclass
 from typing import Any
 
 from app.clients.llm import LLMClient, parse_json_response
@@ -10,6 +16,19 @@ from app.rag.plan_schema import QueryPlan
 from app.rag.prompts import PLANNER_SYSTEM, build_planner_user_prompt
 
 logger = logging.getLogger(__name__)
+
+# High confidence for planner in_scope=false → refuse (conservative)
+_IN_SCOPE_REFUSE_CONF = 0.75
+
+
+@dataclass
+class PlanValidationResult:
+    """Validated plan ready for merge / orchestrator decisions."""
+
+    plan: QueryPlan | None
+    refuse: bool = False  # high-conf out of scope
+    fail_open: bool = False  # malformed / low-conf out / error → retrieve
+    reason: str = ""
 
 
 class SemanticPlanner:
@@ -30,6 +49,7 @@ class SemanticPlanner:
         *,
         endpoints: list[str] | None = None,
         topic_names: list[str] | None = None,
+        finding_ids: list[str] | None = None,
     ) -> QueryPlan | None:
         if not self.enabled or not hasattr(self.llm, "complete"):
             return None
@@ -37,6 +57,7 @@ class SemanticPlanner:
             question=question,
             endpoints=endpoints or [],
             topic_names=topic_names or [],
+            finding_ids=finding_ids or [],
         )
         try:
             raw = self.llm.complete(
@@ -47,6 +68,9 @@ class SemanticPlanner:
                 max_tokens=800,
             )
             data = parse_json_response(raw)
+            if not isinstance(data, dict):
+                logger.warning("Planner returned non-object JSON; fail open")
+                return None
             plan = QueryPlan.model_validate(data)
             if plan.confidence < self.confidence_floor and not _has_structure(plan):
                 logger.info(
@@ -59,12 +83,104 @@ class SemanticPlanner:
                 not _has_structure(plan)
                 and plan.intent in {"general", "summary"}
                 and not plan.want_count
+                and plan.in_scope is True
             ):
                 return None
             return plan
         except Exception as exc:  # noqa: BLE001
             logger.warning("Semantic planner failed: %s", exc)
             return None
+
+
+def decide_planner_scope(plan: QueryPlan | None) -> PlanValidationResult:
+    """Apply conservative in_scope policy.
+
+    | Situation                         | Behavior              |
+    |-----------------------------------|-----------------------|
+    | plan is None (malformed/timeout)  | fail open → retrieve  |
+    | in_scope=false, high confidence   | refuse                |
+    | in_scope=false, low confidence    | fail open → retrieve  |
+    | in_scope=true                     | continue              |
+    """
+    if plan is None:
+        return PlanValidationResult(
+            plan=None, fail_open=True, reason="planner_unavailable"
+        )
+    if plan.in_scope is False:
+        if plan.confidence >= _IN_SCOPE_REFUSE_CONF:
+            return PlanValidationResult(
+                plan=plan, refuse=True, reason="planner_high_conf_out_of_scope"
+            )
+        return PlanValidationResult(
+            plan=plan, fail_open=True, reason="planner_low_conf_out_of_scope"
+        )
+    return PlanValidationResult(plan=plan, reason="in_scope")
+
+
+def validate_plan_against_catalog(
+    plan: QueryPlan,
+    *,
+    endpoints: list[str] | None = None,
+    finding_ids: list[str] | None = None,
+    severities: list[str] | None = None,
+) -> QueryPlan:
+    """Drop planner slots that cannot exist in the scan catalog.
+
+    Explicit rules still override later on merge; this only sanitizes the plan.
+    Fake endpoints/IDs are removed so the planner cannot invent store rows.
+    """
+    catalog_eps = list(endpoints or [])
+    catalog_fids = {f.upper(): f for f in (finding_ids or [])}
+    allowed_sevs = {
+        s.upper()
+        for s in (severities or ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"])
+    }
+
+    # Finding IDs: keep only those in catalog (case-insensitive)
+    if plan.finding_ids:
+        kept: list[str] = []
+        for fid in plan.finding_ids:
+            key = fid.upper()
+            if key in catalog_fids:
+                kept.append(catalog_fids[key])
+            elif catalog_fids:
+                logger.info("Dropping planner finding_id not in catalog: %s", fid)
+            else:
+                # No catalog loaded — keep as-is (caller should pass catalog)
+                kept.append(fid)
+        plan.finding_ids = kept
+
+    # Endpoints: resolve against catalog; drop pure inventions when catalog known
+    if plan.endpoint_substrings and catalog_eps:
+        resolved = resolve_endpoints_against_catalog(
+            plan.endpoint_substrings, catalog_eps
+        )
+        # If a substring matches nothing in catalog (no path hit), drop it
+        cat_blob = " ".join(catalog_eps).lower()
+        cleaned: list[str] = []
+        for sub in resolved:
+            s = (sub or "").lower()
+            if not s:
+                continue
+            if s in cat_blob or any(
+                s in c.lower() or all(t in c.lower() for t in s.split() if len(t) > 2)
+                for c in catalog_eps
+            ):
+                cleaned.append(sub)
+            else:
+                logger.info("Dropping planner endpoint not in catalog: %s", sub)
+        plan.endpoint_substrings = cleaned
+
+    if plan.include_severities:
+        plan.include_severities = [
+            s for s in plan.include_severities if s.upper() in allowed_sevs
+        ]
+    if plan.exclude_severities:
+        plan.exclude_severities = [
+            s for s in plan.exclude_severities if s.upper() in allowed_sevs
+        ]
+
+    return plan
 
 
 def _has_structure(plan: QueryPlan) -> bool:
@@ -79,6 +195,7 @@ def _has_structure(plan: QueryPlan) -> bool:
         or plan.top_n
         or plan.include_phrases
         or plan.exclude_phrases
+        or plan.in_scope is False  # out-of-scope signal is structural for policy
     )
 
 
@@ -204,3 +321,59 @@ def resolve_endpoints_against_catalog(
         else:
             resolved.append(sub)
     return list(dict.fromkeys(resolved))
+
+
+def extract_catalog_finding_ids(
+    question: str,
+    catalog_ids: list[str],
+) -> list[str]:
+    """Match finding IDs mentioned in the question against the loaded scan catalog.
+
+    Supports arbitrary catalog IDs (``FINDING-001``, ``SHIP-AUTH-01``,
+    ``web:xss:44``, ``VULN_2026_91``) — not only ``FINDING-\\d+``.
+    Longer IDs are preferred to avoid partial collisions.
+    """
+    if not question or not catalog_ids:
+        return []
+    q = question
+    # Prefer longer IDs first so SHIP-AUTH-01 beats AUTH-01 if both existed
+    ordered = sorted(set(catalog_ids), key=lambda x: (-len(x), x.upper()))
+    found: list[str] = []
+    found_upper: set[str] = set()
+    for fid in ordered:
+        if not fid:
+            continue
+        # Word-boundary-ish match; allow : _ - inside IDs
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])" + re.escape(fid) + r"(?![A-Za-z0-9])",
+            flags=re.I,
+        )
+        if pattern.search(q) and fid.upper() not in found_upper:
+            found.append(fid)
+            found_upper.add(fid.upper())
+    # Also catch classic FINDING-N even if not yet in catalog (unknown → empty filter later)
+    for m in re.finditer(r"FINDING-\d+", question, flags=re.I):
+        token = m.group(0).upper()
+        if token not in found_upper:
+            # Prefer catalog casing when present
+            canon = next((c for c in catalog_ids if c.upper() == token), token)
+            found.append(canon)
+            found_upper.add(token)
+    return found
+
+
+def apply_catalog_finding_ids(route: Any, catalog_ids: list[str], question: str) -> Any:
+    """Attach catalog-matched finding IDs onto a RouteResult (rules path)."""
+    matched = extract_catalog_finding_ids(question, catalog_ids)
+    if not matched:
+        return route
+    existing = list(getattr(route, "finding_ids", None) or [])
+    existing_u = {x.upper() for x in existing}
+    for fid in matched:
+        if fid.upper() not in existing_u:
+            existing.append(fid)
+            existing_u.add(fid.upper())
+    route.finding_ids = existing
+    if not getattr(route, "finding_id", None) and existing:
+        route.finding_id = existing[0]
+    return route

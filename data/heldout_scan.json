@@ -1,0 +1,119 @@
+{
+  "scan_id": "scan-heldout-shipyard-2026",
+  "target": "api.shipyard-ops.example",
+  "scan_timestamp": "2026-06-01T09:15:00Z",
+  "findings": [
+    {
+      "id": "SHIP-AUTH-01",
+      "title": "Weak Session Token Binding on Carrier Login",
+      "severity": "CRITICAL",
+      "cwe_id": "CWE-287",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "POST /v2/carriers/session",
+      "method": "POST",
+      "parameter": "session_token",
+      "description": "Carrier session tokens are accepted without binding to device fingerprint or IP reputation, allowing session fixation after password reset.",
+      "evidence": {
+        "request": "POST /v2/carriers/session HTTP/1.1\n{\"session_token\": \"stolen-token-...\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n{\"role\": \"dispatcher\", \"carrier_id\": \"CR-9001\"}"
+      },
+      "remediation_hint": "Bind sessions to client context; rotate tokens on privilege change; reject reused tokens after reset."
+    },
+    {
+      "id": "web:xss:44",
+      "title": "Stored XSS in Shipment Notes Widget",
+      "severity": "HIGH",
+      "cwe_id": "CWE-79",
+      "owasp_category": "A03:2021 - Injection",
+      "endpoint": "PUT /v2/shipments/{shipment_id}/notes",
+      "method": "PUT",
+      "parameter": "note_html",
+      "description": "Shipment notes accept raw HTML and render it in the dispatcher console without sanitization.",
+      "evidence": {
+        "request": "PUT /v2/shipments/SHP-771/notes HTTP/1.1\n{\"note_html\": \"<img src=x onerror=alert(1)>\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n{\"saved\": true}"
+      },
+      "remediation_hint": "Sanitize HTML server-side; encode on render; prefer plain text or a strict allowlist."
+    },
+    {
+      "id": "VULN_2026_91",
+      "title": "BOLA on Freight Invoice PDF",
+      "severity": "HIGH",
+      "cwe_id": "CWE-639",
+      "owasp_category": "A01:2021 - Broken Access Control",
+      "endpoint": "GET /v2/billing/invoices/{invoice_id}.pdf",
+      "method": "GET",
+      "parameter": "invoice_id (path)",
+      "description": "Any authenticated warehouse operator can fetch another tenant's invoice PDF by changing invoice_id.",
+      "evidence": {
+        "request": "GET /v2/billing/invoices/INV-44002.pdf HTTP/1.1\nAuthorization: Bearer op-token",
+        "response_snippet": "HTTP/1.1 200 OK\n%PDF-1.4 ..."
+      },
+      "remediation_hint": "Enforce tenant ownership on every invoice read; use opaque non-guessable IDs plus authZ checks."
+    },
+    {
+      "id": "SHIP-SSRF-07",
+      "title": "SSRF via Tracking Webhook Preview",
+      "severity": "CRITICAL",
+      "cwe_id": "CWE-918",
+      "owasp_category": "A10:2021 - Server-Side Request Forgery",
+      "endpoint": "POST /v2/webhooks/preview",
+      "method": "POST",
+      "parameter": "callback_url",
+      "description": "Webhook preview fetches user-supplied URLs from the application network without blocking link-local or metadata addresses.",
+      "evidence": {
+        "request": "POST /v2/webhooks/preview HTTP/1.1\n{\"callback_url\": \"http://169.254.169.254/latest/meta-data/\"}",
+        "response_snippet": "HTTP/1.1 200 OK\n{\"body\": \"ami-id...\"}"
+      },
+      "remediation_hint": "Allowlist schemes/hosts; block private and link-local ranges; use a network-isolated fetcher."
+    },
+    {
+      "id": "WAREHOUSE-RATE-3",
+      "title": "No Rate Limit on Dock Door PIN Reset",
+      "severity": "MEDIUM",
+      "cwe_id": "CWE-307",
+      "owasp_category": "A07:2021 - Identification and Authentication Failures",
+      "endpoint": "POST /v2/docks/{dock_id}/pin/reset",
+      "method": "POST",
+      "parameter": "dock_id (path)",
+      "description": "Dock door PIN reset accepts unlimited attempts, enabling brute force of 6-digit PINs.",
+      "evidence": {
+        "request": "2000 sequential POST /v2/docks/D-12/pin/reset",
+        "response_snippet": "No HTTP 429 observed; average 40ms per attempt"
+      },
+      "remediation_hint": "Rate-limit resets per dock and per actor; add lockout and audit alerts."
+    },
+    {
+      "id": "INV-SQL-12",
+      "title": "SQL Injection in Inventory Lot Search",
+      "severity": "CRITICAL",
+      "cwe_id": "CWE-89",
+      "owasp_category": "A03:2021 - Injection",
+      "endpoint": "GET /v2/inventory/lots/search",
+      "method": "GET",
+      "parameter": "lot_code",
+      "description": "lot_code is concatenated into a dynamic SQL WHERE clause in the WMS search service.",
+      "evidence": {
+        "request": "GET /v2/inventory/lots/search?lot_code=1'+OR+'1'='1",
+        "response_snippet": "HTTP/1.1 200 OK\n{\"lots\": [{\"sku\": \"...\"}, ...]}"
+      },
+      "remediation_hint": "Use parameterized queries or a typed query builder; never concatenate user input into SQL."
+    },
+    {
+      "id": "CFG-INFO-02",
+      "title": "Verbose Stack Traces on Manifest Upload Failures",
+      "severity": "LOW",
+      "cwe_id": "CWE-209",
+      "owasp_category": "A04:2021 - Insecure Design",
+      "endpoint": "POST /v2/manifests/upload",
+      "method": "POST",
+      "parameter": "N/A",
+      "description": "Failed manifest uploads return internal exception class names and file paths to API clients.",
+      "evidence": {
+        "request": "POST /v2/manifests/upload with corrupt ZIP",
+        "response_snippet": "HTTP/1.1 500\n{\"error\": \"java.io.IOException at com.shipyard...\"}"
+      },
+      "remediation_hint": "Return generic client errors; log stack traces server-side only."
+    }
+  ]
+}

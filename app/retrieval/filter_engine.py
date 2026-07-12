@@ -94,7 +94,10 @@ def apply_filters(
     """Apply FilterSpec as AND of dimensions; then severity-sort; optional top_n."""
     out: list[FindingRecord] = list(findings)
 
-    if spec.finding_ids:
+    # Explicit IDs are exact — do not AND soft phrases/topics (avoids false
+    # empties when abbreviations leak into keywords, e.g. rce⊂resources).
+    id_locked = bool(spec.finding_ids)
+    if id_locked:
         want = {x.upper() for x in spec.finding_ids}
         out = [f for f in out if f.finding_id.upper() in want]
 
@@ -143,10 +146,10 @@ def apply_filters(
                 )
             ]
 
-    if spec.include_phrases:
+    if spec.include_phrases and not id_locked:
         out = [f for f in out if matches_all_required(f, spec.include_phrases)]
 
-    if spec.exclude_phrases:
+    if spec.exclude_phrases and not id_locked:
         out = [f for f in out if not matches_any_phrase(f, spec.exclude_phrases)]
 
     if spec.path_param_only:
@@ -156,7 +159,7 @@ def apply_filters(
             if "{" in (f.endpoint or "") or "{" in (f.parameter or "")
         ]
 
-    if spec.include_topics:
+    if spec.include_topics and not id_locked:
         topic_phrases: list[str] = []
         topic_cwes: list[str] = []
         for t in spec.include_topics:
@@ -177,7 +180,7 @@ def apply_filters(
         if topic_phrases or topic_cwes:
             out = [f for f in out if topic_ok(f)]
 
-    if spec.exclude_topics:
+    if spec.exclude_topics and not id_locked:
         exclude_phrases: list[str] = []
         exclude_cwes: list[str] = []
         for t in spec.exclude_topics:

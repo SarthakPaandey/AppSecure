@@ -2,70 +2,66 @@
 
 RAG-backed FastAPI service for **natural-language Q&A over application security scan results** — with **citations**, **hybrid retrieval**, and **hard anti-hallucination controls**.
 
-Think of this as the backend for *“talk to your scan results”* in a PTaaS dashboard: list, explain, remediate, and abstain when the scan does not support the claim.
+**Structured findings decide what exists. Hybrid retrieval resolves soft language. The LLM explains only verified findings.**
 
 | | |
 |---|---|
 | **API** | FastAPI (`/ingest`, `/query`, `/health`) |
 | **Findings store** | SQLite — **system of record** |
-| **Vector store** | Chroma (persistent) |
+| **Vector store** | Chroma (persistent), **fail-closed** metadata filters |
 | **Embeddings** | `Qwen/Qwen3-Embedding-8B` via ModelScope |
 | **LLM** | **Cerebras** `gemma-4-31b` (OpenAI-compatible) |
-| **Retrieval** | SQL filters + **BM25 + dense + RRF + MiniLM cross-encoder** |
-| **Knowledge** | OWASP Top 10 2021 + CWEs in the sample + AppSec playbooks |
+| **Retrieval** | SQL filters + **BM25 ∪ dense → RRF** (cross-encoder optional, off by default) |
+| **Knowledge** | OWASP Top 10 2021 + CWEs + AppSec playbooks |
 
 ---
 
 ## Architecture
 
-Scanner findings are **authoritative structured records**. Pure top‑k vector RAG over JSON fails on full inventory, existence checks, and stable citations. This system uses a **dual store**:
+Scanner findings are **authoritative structured records**. Pure top‑k vector RAG over JSON fails on full inventory, existence checks, and stable citations. This system uses a dual store and a constrained pipeline:
 
 ```text
-Question
-   │
-   ▼
-┌──────────────────────────────────────────┐
-│ Route / plan                             │
-│  rules (operators) + optional semantic   │
-│  planner (LLM → FilterSpec JSON)         │
-│  fallback: rule_based_route              │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│ FilterEngine (SQLite findings)           │
-│  count / top_n / severity / CWE /        │
-│  endpoint / topics / include|exclude     │
-└──────────────────┬───────────────────────┘
-                   │
-     empty + existence? ──► abstain (no invent)
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│ Soft retrieval (when needed)             │
-│  BM25 ∪ dense → RRF → cross-encoder      │
-│  + knowledge vectors (CWE/OWASP/guides)│
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│ Answer                                   │
-│  inventory → structured templates        │
-│  explain/remediate → grounded LLM        │
-│  citation gate (IDs ⊆ retrieved only)    │
-└──────────────────────────────────────────┘
+Question + scan_id
+  → Load selected scan + catalog
+  → Extract explicit structure
+  → Exact structured?
+       Yes → SQLite FilterEngine → Structured template → Citation gate
+       No  → Optional semantic planner (ambiguous only)
+              → Validate against catalog
+              → High-confidence out of scope?
+                   Yes → Product-boundary refusal
+                   No  → BM25 + Dense → RRF
+                        → Verify selected-scan membership
+                        → Supporting findings?
+                             No  → Grounded abstention
+                             Yes → Knowledge (CWE/OWASP, fail-closed filters)
+                                  → Grounded generator (or row-bound fallback)
+                                  → Citation gate
+  → Response
 ```
 
-**Principle:** the LLM **proposes** filters and **narrates** answers; the **store decides which findings exist**. Citations are validated server-side.
+**Principle:** the LLM **proposes** filters (planner, ambiguous only) and **narrates** answers (generator); the **store decides which findings exist**. Citations are validated server-side.
 
-### Why not “agent-only” or “embed-only”?
+### LLM call budget (defaults)
+
+| Path | Calls |
+|------|------:|
+| Count / list CRITICAL / A01 / top-N / inventory | **0** |
+| Explain/fix with clear rules | **1** (generator only) |
+| Soft semantic | **2** (planner + generator) |
+| Unsupported existence | **0–1** |
+| Max normal (with one repair) | **≤3** |
+
+Dedicated scope LLM and multi-round tool agent are **off by default** (optional via env).
+
+### Why SQLite + RAG?
 
 | Approach | Failure mode on this problem |
 |----------|------------------------------|
 | Embed JSON + chat | Misses full CRITICAL list; invents vulns |
 | LLM free-form inventory | “15 CRITICAL” when there are 2 |
 | SQL only | Weak on soft phrasing (“other users’ profiles”) |
-| **This hybrid** | Exact ops from SQL; soft questions via hybrid IR + LLM |
+| **This hybrid** | Exact ops from SQL; soft questions via hybrid IR + grounded LLM |
 
 ---
 
@@ -73,12 +69,13 @@ Question
 
 | Layer | Location | Role |
 |-------|----------|------|
-| Scan findings | `data/sample_findings.json` | What was found (truth) |
-| OWASP Top 10 2021 | `data/knowledge/owasp_top10_2021/` | Assignment + citations |
-| CWE definitions | `data/knowledge/cwe/` | Assignment + citations |
-| AppSec playbooks *(extra)* | `data/knowledge/appsec_guides/` | BOLA/IDOR, JWT `none`, SSRF/metadata, SQLi, auth hardening, scanner interpretation |
+| Sample scan | `data/sample_findings.json` | Demo domain (`api.wealthpilot.io`) |
+| Held-out scan | `data/heldout_scan.json` | Different domain + ID schemes (evaluation) |
+| OWASP Top 10 2021 | `data/knowledge/owasp_top10_2021/` | Category context + citations |
+| CWE definitions | `data/knowledge/cwe/` | Vulnerability class context |
+| AppSec playbooks | `data/knowledge/appsec_guides/` | BOLA/IDOR, JWT `none`, SSRF, SQLi, auth |
 
-Playbooks are intentional product depth (how a PTaaS engineer answers), not random PDF dumps. Knowledge is **offline curated** for deterministic demos; production would sync OWASP/MITRE on a schedule.
+Playbooks deepen *how* to explain/fix a verified finding. They never prove a finding **exists** — only scan rows do.
 
 ---
 
@@ -103,14 +100,15 @@ cp .env.example .env
 
 Never commit `.env`. Rotate any key that was pasted into chat or tickets.
 
-Useful knobs:
+Useful knobs (defaults match `.env.example`):
 
 ```bash
-USE_SEMANTIC_PLANNER=true    # LLM FilterSpec for soft NL (skipped when rules are confident)
+USE_SEMANTIC_PLANNER=true    # planner for ambiguous NL only
 USE_DYNAMIC_SYNTHESIS=true   # LLM explain/remediate from retrieved rows
-USE_TOOL_AGENT=false         # multi-round tools off by default (latency)
-LLM_MAX_TOKENS=1200
-RERANK_MODE=auto             # auto | cross_encoder | light
+USE_LLM_SCOPE_GATE=false     # dedicated scope LLM off (rules + planner in_scope)
+USE_TOOL_AGENT=false         # multi-round tools off (not the main path)
+RERANK_MODE=light            # RRF + light lexical; CE optional
+CROSS_ENCODER_ENABLED=false
 ```
 
 ### Install & run
@@ -145,6 +143,16 @@ curl -s http://localhost:8000/ingest \
 curl -s http://localhost:8000/query \
   -H 'Content-Type: application/json' \
   -d '{"question":"What are all the critical severity findings?"}' | python -m json.tool
+
+# Held-out scan (different domain / ID schemes)
+curl -s http://localhost:8000/ingest \
+  -H 'Content-Type: application/json' \
+  -d "{\"scan\": $(cat data/heldout_scan.json)}" | python -m json.tool
+
+curl -s http://localhost:8000/query \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How many CRITICAL findings?","scan_id":"scan-heldout-shipyard-2026"}' \
+  | python -m json.tool
 ```
 
 Demos:
@@ -173,8 +181,6 @@ Upserts the structured findings store, embeds finding narratives, indexes OWASP/
 }
 ```
 
-Response fields:
-
 | Field | Meaning |
 |-------|---------|
 | `answer` | Grounded natural language |
@@ -198,12 +204,13 @@ List structured findings (debug / explainability).
 
 ## Query path (anti-hallucination)
 
-1. **Route** — rule operators (count, top‑N, severity, CWE, endpoint, topics) + optional **semantic planner** (LLM → structured plan, merged with rules)  
-2. **FilterEngine** — set algebra on SQLite inventory (never invents rows)  
-3. **Abstain** — empty existence / unknown path → fixed refusal  
-4. **Hybrid IR** (soft free-text) — BM25 ∪ dense → RRF → MiniLM CE (or light fallback)  
-5. **Generate** — structured templates for inventory; grounded LLM for explain/remediate/compare  
-6. **Citation gate** — strip unknown `FINDING-*` IDs from refs and answer text  
+1. **Load scan + catalog** — finding IDs and endpoints from the selected scan  
+2. **Structural parse** — severity, CWE, OWASP, paths, operators; **catalog-aware IDs** (`FINDING-001`, `SHIP-AUTH-01`, `web:xss:44`, …)  
+3. **Exact path** — FilterEngine on SQLite inventory → template (often **0 LLM**)  
+4. **Optional planner** — ambiguous NL only; validates against catalog; high-conf `in_scope=false` refuses; malformed/low-conf **fail open** to retrieval  
+5. **Hybrid IR** — BM25 ∪ dense → RRF; vector filters **fail closed** (never drop `scan_id`)  
+6. **Generate** — inventory templates; grounded LLM for explain/remediate/compare  
+7. **Citation gate** — strip unknown IDs; existence requires a scan row (playbooks ≠ findings)  
 
 Layered defense: **prompts alone are not a control**.
 
@@ -212,7 +219,7 @@ Layered defense: **prompts alone are not a control**.
 | Type | Example | Path |
 |------|---------|------|
 | Hard / exact | “How many CRITICAL?” “Top 3?” “Payments endpoint?” | SQL / FilterEngine (often **no LLM**) |
-| Soft / fuzzy | “Other users’ accounts?” “SSRF cloud risk?” | Hybrid retrieval + LLM on retrieved rows |
+| Soft / fuzzy | “Other users’ accounts?” “SSRF cloud risk?” | Planner (optional) + hybrid + LLM on rows |
 
 ---
 
@@ -221,22 +228,21 @@ Layered defense: **prompts alone are not a control**.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Findings storage | SQLite | Exact filters, re-ingest, zero infra |
-| Vectors | Chroma | Zero-ops for take-home; metadata filters |
-| Embeddings | Qwen3-Embedding-8B (ModelScope) | Strong general embedder; OpenAI-compatible API |
-| LLM | Cerebras `gemma-4-31b` | High throughput for plan/answer under latency budget |
-| Free-text IR | BM25 + dense + RRF + CE | Lexical exactness + semantic paraphrases |
+| Vectors | Chroma + fail-closed `where` | Isolation; never bare-retry filters |
+| Embeddings | Qwen3-Embedding-8B (ModelScope) | Strong general embedder |
+| LLM | Cerebras `gemma-4-31b` | Plan + narrate under latency budget |
+| Free-text IR | BM25 + dense + RRF | Lexical + semantic; CE optional |
 | Orchestration | Filter-first hybrid | Inventory truth; LLM for narration |
-| Tools agent | Off by default | Latency; optional deep mode later |
+| Scope | Rules + planner `in_scope` | No required dedicated scope LLM |
+| Tools agent | Off by default | Latency; optional deep mode |
 
 ### Latency (target &lt; 10s)
-
-Typical profile with Cerebras Gemma 4 (local measurement, single user):
 
 | Path | Observed order |
 |------|----------------|
 | Count / top‑N / strict filters | **milliseconds** |
 | Many list / existence filters | **&lt; 1–2 s** |
-| LLM explain / soft synthesis | **usually a few seconds**; depends on provider load |
+| LLM explain / soft synthesis | **usually a few seconds**; depends on provider |
 
 Inventory does **not** need the LLM. Soft paths use at most planner + answer (planner skipped when rules are already confident).
 
@@ -252,17 +258,16 @@ app/
   ingestion/     # pipeline, knowledge loader
   retrieval/     # findings store, filter_engine, taxonomy, hybrid, BM25, CE
   rag/           # planner, prompts, router, generator, citations, tools
-  services/      # query orchestrator
+  services/      # query orchestrator (essay pipeline helpers)
 data/
   sample_findings.json
-  knowledge/owasp_top10_2021/
-  knowledge/cwe/
-  knowledge/appsec_guides/
+  heldout_scan.json
+  knowledge/...
 tests/
 scripts/
-  demo_queries.sh
-  hard_queries.sh
-  live_validate.py
+docs/
+  plan-v0.md
+  STUDY_GUIDE_AND_JUSTIFICATION.md
 ```
 
 ---
@@ -275,13 +280,20 @@ Unit tests use **fake embeddings + fake LLM** (no network):
 pytest -q
 ```
 
+Coverage includes:
+
+- Severity / OWASP / precision operators (count, top‑N, endpoint)
+- Citation gate + RCE/unsupported existence abstain  
+- Vector filter **fail-closed** isolation  
+- **Held-out scan** (different domain, arbitrary IDs, multi-scan isolation)  
+- Planner merge / catalog validation / `in_scope` policy  
+- Golden hard cases and API smoke  
+
 Live validation (server running + real keys):
 
 ```bash
 .venv/bin/python scripts/live_validate.py
 ```
-
-Coverage includes: severity/OWASP filters, RCE abstain, citation stripping, precision operators (count, top‑N, endpoint, secrets), golden hard cases, API smoke.
 
 ---
 
@@ -300,17 +312,31 @@ Coverage includes: severity/OWASP filters, RCE abstain, citation stripping, prec
 
 ---
 
-## Known limitations & future work
+## Tradeoffs and evaluation approach
+
+Evaluation emphasizes **held-out evidence**, not sample memorization:
+
+1. **Sample scan** — assignment-shaped demo (`FINDING-00N`).  
+2. **Held-out scan** — logistics domain with IDs like `SHIP-AUTH-01`, `web:xss:44`, `VULN_2026_91`.  
+3. **Isolation** — multi-scan queries never leak finding IDs across `scan_id`.  
+4. **Abstention** — unsupported existence and unknown endpoints refuse to invent.  
+5. **No answer packs** — generator templates bind to store rows; no hardcoded held-out prose.
+
+Design is **surgical**: adapters and helpers over a full rewrite of `RouteResult` / `QueryPlan` / `FilterSpec`.
+
+---
+
+## Known limitations
 
 1. **Soft NL is not full NLU** — planner + rules + taxonomy; unusual phrasing can still mis-route.  
-2. **Single-scan demo** — sample overfit risk; add more fixtures for production confidence.  
-3. **Provider latency / quotas** — free tiers vary; inventory stays local/SQL.  
-4. **Taxonomy is curated domain knowledge** — not live MITRE/OWASP sync; no finding-ID answer packs.  
-5. **Orchestrator still thick** — further split into plan → filter → retrieve → generate → gate modules.  
-6. **No multi-tenant auth / audit** — out of take-home scope.  
-7. **Cross-encoder download** — first CE use may fetch MiniLM; use `RERANK_MODE=light` in CI.  
+2. **Provider latency / quotas** — free tiers vary; inventory stays local/SQL.  
+3. **Taxonomy is curated** — not live MITRE/OWASP sync.  
+4. **Orchestrator still relatively thick** — stages are helpers; further module splits possible.  
+5. **No multi-tenant auth / audit** — out of take-home scope.  
+6. **Cross-encoder optional** — enable via `CROSS_ENCODER_ENABLED=true` + `RERANK_MODE=cross_encoder` if needed.  
+7. **Knowledge guides ≠ findings** — playbooks explain verified rows; they do not invent presence.
 
-**Next upgrades (roadmap):** stronger LLM FilterSpec planner eval suite, dual-scan golden, stage-level latency metrics, optional multi-tenant.
+**Roadmap ideas:** stronger planner eval suite, stage-level latency metrics, optional multi-tenant.
 
 ---
 
@@ -318,13 +344,14 @@ Coverage includes: severity/OWASP filters, RCE abstain, citation stripping, prec
 
 - Treat scanner evidence fields as **untrusted** in prompts.  
 - Never commit `.env` or paste live keys into tickets.  
-- Citation IDs are validated against retrieved findings only.
+- Citation IDs are validated against retrieved findings only.  
+- Chroma filtered queries **fail closed** — a broken `where` returns no hits, never unfiltered results.
 
 ---
 
 ## Study guide / design defense
 
-For architecture justification, tradeoffs, “is this gamed?”, what’s missing, and viva Q&A, see:
+For architecture justification, tradeoffs, evaluation approach, what’s missing, and viva Q&A, see:
 
 **[`docs/STUDY_GUIDE_AND_JUSTIFICATION.md`](docs/STUDY_GUIDE_AND_JUSTIFICATION.md)**
 
@@ -332,4 +359,4 @@ For architecture justification, tradeoffs, “is this gamed?”, what’s missin
 
 ## License / assignment
 
-Take-home implementation for **AppSecure** (PTaaS). Dataset is fictional (`api.wealthpilot.io`). OWASP/CWE summaries include official links for citation. Design history: earlier notes in session plans; **this README is authoritative for the shipped system**.
+Take-home implementation for **AppSecure** (PTaaS). Datasets are fictional. OWASP/CWE summaries include official links for citation. **This README is authoritative for the shipped system.**

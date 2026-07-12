@@ -111,7 +111,7 @@ def rule_based_route(question: str) -> RouteResult:
     q = (question or "").lower()
     result = RouteResult(source="rules")
 
-    # --- Finding IDs ---
+    # --- Finding IDs (classic FINDING-N; catalog-aware match applied after scan load) ---
     ids = [m.group(0).upper() for m in re.finditer(r"FINDING-\d+", question or "", re.I)]
     if ids:
         result.finding_ids = list(dict.fromkeys(ids))

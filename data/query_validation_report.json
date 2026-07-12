@@ -14,8 +14,8 @@
         "FINDING-001",
         "FINDING-004"
       ],
-      "latency_ms": 1452,
-      "wall_s": 1.46,
+      "latency_ms": 713,
+      "wall_s": 0.72,
       "answer_preview": "Matching finding(s) from the scan (2), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Injecti",
       "issues": []
     },
@@ -29,9 +29,9 @@
       "findings_referenced": [
         "FINDING-002"
       ],
-      "latency_ms": 1142,
-      "wall_s": 1.15,
-      "answer_preview": "The endpoint `GET /api/v1/accounts/{id}` is vulnerable to Broken Object Level Authorization (IDOR). An authenticated user can manipulate the `id` path parameter (e.g., changing it to `ACC-1102`) to access account details",
+      "latency_ms": 1508,
+      "wall_s": 1.51,
+      "answer_preview": "The endpoint `GET /api/v1/accounts/{id}` is vulnerable to Broken Object Level Authorization (IDOR). An authenticated user can manipulate the `id` path parameter to access account details belonging to other users, as demo",
       "issues": []
     },
     {
@@ -44,9 +44,9 @@
       "findings_referenced": [
         "FINDING-001"
       ],
-      "latency_ms": 2062,
-      "wall_s": 2.07,
-      "answer_preview": "To fix the CRITICAL SQL injection vulnerability at `GET /api/v1/transactions/search` involving the `account_id` parameter, you must stop directly concatenating user input into SQL queries.   **Recommended Remediation:** ",
+      "latency_ms": 54202,
+      "wall_s": 54.21,
+      "answer_preview": "To fix the CRITICAL SQL injection vulnerability at `GET /api/v1/transactions/search` involving the `account_id` parameter, you must stop concatenating user-controlled input directly into SQL queries.   Following security",
       "issues": []
     },
     {
@@ -60,8 +60,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 55598,
-      "wall_s": 55.59,
+      "latency_ms": 1832,
+      "wall_s": 1.84,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -73,9 +73,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 603,
-      "wall_s": 0.61,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 670,
+      "wall_s": 0.68,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -91,8 +91,8 @@
         "FINDING-015",
         "FINDING-009"
       ],
-      "latency_ms": 1075,
-      "wall_s": 1.08,
+      "latency_ms": 636,
+      "wall_s": 0.64,
       "answer_preview": "Matching finding(s) from the scan (4), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/v1/auth/verify; CWE-287; A07:2021 - Iden",
       "issues": []
     },
@@ -120,8 +120,8 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 1026,
-      "wall_s": 1.03,
+      "latency_ms": 1033,
+      "wall_s": 1.04,
       "answer_preview": "Scan findings summary (15 finding(s)), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (CWE-89; A03:2021 - Injection) - **CRITICAL** `FINDING-004`:",
       "issues": []
     },
@@ -135,9 +135,9 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 1939,
-      "wall_s": 1.94,
-      "answer_preview": "The SSRF vulnerability in the `/api/v1/documents/import` endpoint (parameter `source_url`) allows an attacker to coerce the server into making requests to unexpected destinations.   **Risk and Exploitation:** An attacker",
+      "latency_ms": 54379,
+      "wall_s": 54.38,
+      "answer_preview": "The SSRF vulnerability in the `POST /api/v1/documents/import` endpoint via the `source_url` parameter allows an attacker to coerce the server into sending crafted requests to unexpected destinations.   An attacker can ex",
       "issues": []
     },
     {
@@ -150,8 +150,8 @@
       "findings_referenced": [
         "FINDING-005"
       ],
-      "latency_ms": 53147,
-      "wall_s": 53.15,
+      "latency_ms": 471,
+      "wall_s": 0.48,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **MEDIUM** `FINDING-005`: Sensitive Data Exposure in API Error Response (POST /api/v1/payments/initiate; CWE-209; A04:2021 - Insecure Design)",
       "issues": []
     },
@@ -166,9 +166,9 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 1846,
-      "wall_s": 1.85,
-      "answer_preview": "Yes, both findings share the same root cause: Broken Object Level Authorization (BOLA/IDOR). Both `FINDING-002` (Account Details) and `FINDING-008` (Document Download) occur because the application fails to perform owner",
+      "latency_ms": 1941,
+      "wall_s": 1.95,
+      "answer_preview": "Yes, both findings share the same root cause: Broken Object Level Authorization (BOLA/IDOR). Both vulnerabilities occur because the application fails to enforce ownership or tenancy checks when a user requests a resource",
       "issues": []
     },
     {
@@ -179,9 +179,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 624,
-      "wall_s": 0.63,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 661,
+      "wall_s": 0.67,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -192,9 +192,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 621,
-      "wall_s": 0.63,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 658,
+      "wall_s": 0.66,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -205,9 +205,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 585,
-      "wall_s": 0.59,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 667,
+      "wall_s": 0.67,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -218,9 +218,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 510,
-      "wall_s": 0.51,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 54170,
+      "wall_s": 54.18,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -247,8 +247,8 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 54709,
-      "wall_s": 54.71,
+      "latency_ms": 2173,
+      "wall_s": 2.18,
       "answer_preview": "Findings grouped by **shared root-cause / control family** (not only by severity):  ### Authentication / session (JWT & identity) (4) - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/",
       "issues": []
     },
@@ -276,16 +276,16 @@
       "status": "PASS",
       "intent": "compare",
       "abstained": false,
-      "answer_source": "llm",
-      "model_used": "gemma-4-31b",
+      "answer_source": "template",
+      "model_used": null,
       "findings_referenced": [
         "FINDING-004",
         "FINDING-006",
         "FINDING-009"
       ],
-      "latency_ms": 1400,
-      "wall_s": 1.4,
-      "answer_preview": "Yes, these findings belong to the same broad control family. All three\u2014JWT 'none' algorithm (FINDING-004), missing login rate limiting (FINDING-006), and weak password policy (FINDING-009)\u2014are categorized under OWASP A07",
+      "latency_ms": 1031,
+      "wall_s": 1.04,
+      "answer_preview": "**Comparison** (shared root cause vs different resources/controls):  These findings share the same control family: **Authentication / session (JWT & identity)**. They may be the same bug pattern on different resources/en",
       "issues": []
     },
     {
@@ -303,7 +303,7 @@
         "FINDING-011",
         "FINDING-014"
       ],
-      "latency_ms": 5,
+      "latency_ms": 6,
       "wall_s": 0.01,
       "answer_preview": "**HIGH findings** classified by problem family (using each finding's stored severity + CWE/title \u2014 not guessed):  ### Access-control problems - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account ",
       "issues": []
@@ -319,8 +319,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 1166,
-      "wall_s": 1.17,
+      "latency_ms": 1914,
+      "wall_s": 1.92,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -335,7 +335,7 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 3,
+      "latency_ms": 4,
       "wall_s": 0.01,
       "answer_preview": "Matching finding(s) from the scan (2), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; parameter=`i",
       "issues": []
@@ -345,15 +345,15 @@
       "status": "PASS",
       "intent": "compare",
       "abstained": false,
-      "answer_source": "llm",
-      "model_used": "gemma-4-31b",
+      "answer_source": "structured",
+      "model_used": null,
       "findings_referenced": [
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 53721,
-      "wall_s": 53.73,
-      "answer_preview": "FINDING-002 and FINDING-008 represent two instances of the same security pattern occurring on different resources.",
+      "latency_ms": 1757,
+      "wall_s": 1.76,
+      "answer_preview": "These are two separate instances of the same vulnerability pattern (BOLA/IDOR) affecting different resources. Both share the same root cause (CWE-639) and OWASP category (A01:2021), but they target different endpoints an",
       "issues": []
     },
     {
@@ -366,9 +366,9 @@
       "findings_referenced": [
         "FINDING-015"
       ],
-      "latency_ms": 597,
-      "wall_s": 0.6,
-      "answer_preview": "FINDING-015 is a secrets-management failure. While it is categorized under OWASP A07:2021 (Identification and Authentication Failures), the finding's description and evidence specifically identify a \"Hardcoded API Key\" (",
+      "latency_ms": 50013,
+      "wall_s": 50.02,
+      "answer_preview": "FINDING-015 is a secrets-management failure. While it is mapped to OWASP A07:2021 (Identification and Authentication Failures), the finding's description and evidence specifically identify a \"hardcoded API key\" (`PAYMENT",
       "issues": []
     },
     {
@@ -383,8 +383,8 @@
         "FINDING-004",
         "FINDING-002"
       ],
-      "latency_ms": 4,
-      "wall_s": 0.01,
+      "latency_ms": 11,
+      "wall_s": 0.02,
       "answer_preview": "**Top 3 findings to fix first** before production go-live (ordered by severity, then business impact):  1. **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89)    - **",
       "issues": []
     },
@@ -412,8 +412,8 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 607,
-      "wall_s": 0.61,
+      "latency_ms": 637,
+      "wall_s": 0.64,
       "answer_preview": "Matching finding(s) from the scan (15), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Inject",
       "issues": []
     },
@@ -427,9 +427,9 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 2110,
-      "wall_s": 2.11,
-      "answer_preview": "Yes, the SSRF vulnerability in the document import feature directly threatens cloud credentials. The evidence shows that a request to the link-local metadata address `http://169.254.169.254/` via the `source_url` paramet",
+      "latency_ms": 1994,
+      "wall_s": 2.0,
+      "answer_preview": "Yes, the SSRF vulnerability at `POST /api/v1/documents/import` via the `source_url` parameter directly threatens cloud credentials. The evidence shows a successful request to the link-local metadata endpoint `http://169.",
       "issues": []
     },
     {
@@ -442,9 +442,9 @@
       "findings_referenced": [
         "FINDING-001"
       ],
-      "latency_ms": 58158,
-      "wall_s": 58.16,
-      "answer_preview": "To remediate the SQL injection on the transaction search endpoint, implement the following: 1. Code Change: Replace direct string concatenation of user input with parameterized queries or a secure ORM to ensure input is ",
+      "latency_ms": 57141,
+      "wall_s": 57.15,
+      "answer_preview": "To remediate the CRITICAL SQL Injection on `GET /api/v1/transactions/search` via the `account_id` parameter, implement the following plan:  1. **Code Change**: Replace string concatenation with **parameterized queries** ",
       "issues": []
     },
     {
@@ -458,9 +458,9 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 57528,
-      "wall_s": 57.53,
-      "answer_preview": "To fix both IDOR findings (FINDING-002, FINDING-008), implement a centralized authorization middleware that enforces server-side ownership validation. The middleware should extract the authenticated user's identity from ",
+      "latency_ms": 6342,
+      "wall_s": 6.35,
+      "answer_preview": "To resolve both IDOR findings, implement a centralized authorization middleware that enforces server-side ownership validation for every resource access. Instead of relying on the user-provided IDs, the middleware should",
       "issues": []
     },
     {
@@ -473,9 +473,9 @@
       "findings_referenced": [
         "FINDING-004"
       ],
-      "latency_ms": 1963,
-      "wall_s": 1.97,
-      "answer_preview": "A common mistake teams make is trusting the `alg` header provided within the token itself to determine how to verify the signature. This allows an attacker to specify `\"alg\":\"none\"` to bypass authentication entirely, as ",
+      "latency_ms": 5022,
+      "wall_s": 5.03,
+      "answer_preview": "A common mistake teams make is trusting the `alg` header provided within the token itself, which allows an attacker to specify `\"alg\":\"none\"` to skip signature verification.   For the finding at `POST /api/v1/auth/verify",
       "issues": []
     },
     {
@@ -486,9 +486,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 2,
+      "latency_ms": 3,
       "wall_s": 0.01,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -499,9 +499,9 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 587,
-      "wall_s": 0.59,
-      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about (for example, remote code execution). I will not i",
+      "latency_ms": 826,
+      "wall_s": 0.84,
+      "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
     {
@@ -514,8 +514,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 1076,
-      "wall_s": 1.08,
+      "latency_ms": 1018,
+      "wall_s": 1.03,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **HIGH** `FINDING-007`: Server-Side Request Forgery (SSRF) in Document Import (POST /api/v1/documents/import; CWE-918; A10:2021 - Server-Side Request Forgery)",
       "issues": []
     },
@@ -531,8 +531,8 @@
         "FINDING-015",
         "FINDING-009"
       ],
-      "latency_ms": 605,
-      "wall_s": 0.61,
+      "latency_ms": 60285,
+      "wall_s": 60.29,
       "answer_preview": "Matching finding(s) from the scan (3), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-006`: Missing Rate Limiting on Login Endpoint (POST /api/v1/auth/login; CWE-307; A07:2021 - Identification",
       "issues": []
     },
@@ -553,8 +553,8 @@
         "FINDING-011",
         "FINDING-014"
       ],
-      "latency_ms": 52721,
-      "wall_s": 52.72,
+      "latency_ms": 1407,
+      "wall_s": 1.41,
       "answer_preview": "Based on the scan data, 8 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Injecti",
       "issues": []
     },
@@ -569,8 +569,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 1167,
-      "wall_s": 1.17,
+      "latency_ms": 1397,
+      "wall_s": 1.4,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -584,7 +584,7 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 3,
+      "latency_ms": 2,
       "wall_s": 0.01,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **HIGH** `FINDING-007`: Server-Side Request Forgery (SSRF) in Document Import (POST /api/v1/documents/import; CWE-918; A10:2021 - Server-Side Request Forgery; parameter=`",
       "issues": []
@@ -658,8 +658,8 @@
         "FINDING-013",
         "FINDING-010"
       ],
-      "latency_ms": 562,
-      "wall_s": 0.57,
+      "latency_ms": 938,
+      "wall_s": 0.94,
       "answer_preview": "Matching finding(s) from the scan (11), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Inject",
       "issues": []
     },
@@ -673,8 +673,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 607,
-      "wall_s": 0.61,
+      "latency_ms": 3697,
+      "wall_s": 3.7,
       "answer_preview": "Matching finding(s) from the scan (1), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-007`: Server-Side Request Forgery (SSRF) in Document Import (POST /api/v1/documents/import; CWE-918; A10:2",
       "issues": []
     },
@@ -688,8 +688,8 @@
       "findings_referenced": [
         "FINDING-015"
       ],
-      "latency_ms": 713,
-      "wall_s": 0.72,
+      "latency_ms": 848,
+      "wall_s": 0.85,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **MEDIUM** `FINDING-015`: Hardcoded API Key in Client-Side JavaScript (GET /static/js/app.bundle.js; CWE-798; A07:2021 - Identification and Authentication Failures)",
       "issues": []
     },
@@ -703,8 +703,8 @@
       "findings_referenced": [
         "FINDING-005"
       ],
-      "latency_ms": 52808,
-      "wall_s": 52.81,
+      "latency_ms": 59168,
+      "wall_s": 59.17,
       "answer_preview": "Matching finding(s) from the scan (1), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **MEDIUM** `FINDING-005`: Sensitive Data Exposure in API Error Response (POST /api/v1/payments/initiate; CWE-209; A04:2021 -",
       "issues": []
     },
@@ -718,9 +718,9 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 1454,
-      "wall_s": 1.46,
-      "answer_preview": "To remediate the Server-Side Request Forgery (SSRF) identified in `POST /api/v1/documents/import` (parameter: `source_url`), you should implement the following controls:  1. **Implement a Strict Allowlist**: Validate and",
+      "latency_ms": 1448,
+      "wall_s": 1.45,
+      "answer_preview": "To remediate the Server-Side Request Forgery (SSRF) vulnerability (CWE-918) found at the `POST /api/v1/documents/import` endpoint in the `source_url` parameter, you should implement the following controls:  1. **Validati",
       "issues": []
     }
   ],
@@ -732,18 +732,18 @@
     "latency_ms": {
       "count": 43,
       "min": 2,
-      "max": 58158,
-      "avg": 10849.3,
-      "p50": 1026.0,
-      "p95": 55509.1
+      "max": 60285,
+      "avg": 10061.3,
+      "p50": 1031.0,
+      "p95": 56864.8
     },
     "wall_s": {
       "count": 43,
       "min": 0.01,
-      "max": 58.16,
-      "avg": 10.85,
-      "p50": 1.03,
-      "p95": 55.5
+      "max": 60.29,
+      "avg": 10.07,
+      "p50": 1.04,
+      "p95": 56.87
     },
     "intents": {
       "list": 14,
@@ -757,9 +757,10 @@
       "general": 1
     },
     "answer_sources": {
-      "structured": 26,
-      "llm": 10,
-      "abstain": 7
+      "structured": 27,
+      "llm": 8,
+      "abstain": 7,
+      "template": 1
     }
   },
   "config": {

@@ -31,9 +31,21 @@ AnswerModeLit = Literal[
     "summary",
 ]
 
+ExecutionLit = Literal[
+    "structured",
+    "hybrid",
+    "abstain",
+    "refuse",
+]
+
 
 class QueryPlan(BaseModel):
-    """LLM-extracted intent + filter slots (never invents store rows)."""
+    """LLM-extracted intent + filter slots (never invents store rows).
+
+    Planner is a constrained interpreter for ambiguous questions only.
+    It must not produce final answers. Optional ``in_scope`` / ``execution``
+    guide the orchestrator; explicit structural rules always win on merge.
+    """
 
     intent: IntentLit = "general"
     answer_mode: AnswerModeLit | None = None
@@ -54,6 +66,10 @@ class QueryPlan(BaseModel):
     want_endpoint: bool = False
     confidence: float = 0.5
     rationale: str = ""
+    # Scope: high-conf false → refuse; low-conf / missing → fail open to retrieve
+    in_scope: bool = True
+    # Optional execution hint (orchestrator may ignore)
+    execution: ExecutionLit | None = None
 
     @field_validator("include_severities", "exclude_severities", mode="before")
     @classmethod
@@ -90,16 +106,21 @@ class QueryPlan(BaseModel):
     @field_validator("finding_ids", mode="before")
     @classmethod
     def _norm_fids(cls, v: Any) -> list[str]:
+        """Accept catalog-style IDs (FINDING-001, SHIP-AUTH-01, web:xss:44, …)."""
         if not v:
             return []
         if isinstance(v, str):
             v = [v]
-        out = []
+        out: list[str] = []
         for raw in v:
-            s = str(raw).strip().upper()
-            if s.startswith("FINDING-"):
-                out.append(s)
-        return out
+            s = str(raw).strip()
+            if not s or len(s) > 64:
+                continue
+            # Reject whitespace / path-like junk
+            if any(ch.isspace() for ch in s):
+                continue
+            out.append(s)
+        return list(dict.fromkeys(out))
 
     @field_validator("top_n", mode="before")
     @classmethod
@@ -111,3 +132,14 @@ class QueryPlan(BaseModel):
             return n if 1 <= n <= 50 else None
         except (TypeError, ValueError):
             return None
+
+    @field_validator("in_scope", mode="before")
+    @classmethod
+    def _norm_in_scope(cls, v: Any) -> bool:
+        if v is None:
+            return True  # missing → fail open
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() not in {"false", "0", "no", "out"}
+        return bool(v)

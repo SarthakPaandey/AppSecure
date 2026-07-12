@@ -8,10 +8,13 @@ Use this before a review / viva / submission write-up. It explains **what we bui
 You (author) + a technical reviewer who may be skeptical of regex, templates, and sample-tuned tests.
 
 **Product one-liner**  
-A FastAPI service that answers natural-language questions **over ingested application-security scan findings**, with **citations**, **hybrid retrieval**, **LLM scope gating (Gemma)**, and **hard anti-hallucination controls**. Demo dataset is a fictional fintech API; the **engine is scan-schema-general**, not fintech-product-locked.
+A FastAPI service that answers natural-language questions **over ingested application-security scan findings**, with **citations**, **hybrid retrieval**, and **hard anti-hallucination controls**. Demo datasets include a fictional fintech API and a **held-out logistics scan** with arbitrary IDs; the **engine is scan-schema-general**.
+
+**Thesis**  
+Exact questions are answered from the complete structured scan; ambiguous questions get one constrained planner + hybrid retrieval; one grounded generator explains only verified findings with server-validated citations.
 
 **Repo alignment**  
-Reflects post-generalization + scope-gate work (catalog endpoints, pattern playbooks, row-bound templates, Gemma scope relatedness). Re-read `app/rag/scope.py` and `app/services/query_service.py` if the code has moved further.
+Reflects essay-aligned defaults: scope LLM **off**, tool agent **off**, RRF light, catalog-aware IDs, planner `in_scope` fail-open policy. Re-read `app/services/query_service.py`, `app/rag/planner.py`, and `app/retrieval/vector_store.py`.
 
 ---
 
@@ -24,13 +27,13 @@ Reflects post-generalization + scope-gate work (catalog endpoints, pattern playb
 5. [Data model & dual store](#5-data-model--dual-store)  
 6. [Request lifecycle (query path)](#6-request-lifecycle-query-path)  
 7. [LLM call budget (how many calls?)](#7-llm-call-budget-how-many-calls)  
-8. [Scope gate (Gemma relatedness)](#8-scope-gate-gemma-relatedness)  
+8. [Scope and planner in_scope policy](#8-scope-and-planner-in_scope-policy)  
 9. [Module-by-module justification](#9-module-by-module-justification)  
 10. [Key functions & design contracts](#10-key-functions--design-contracts)  
 11. [Models, providers, config](#11-models-providers-config)  
 12. [What is still “hardcoded” (honest inventory)](#12-what-is-still-hardcoded-honest-inventory)  
 13. [Tradeoffs matrix](#13-tradeoffs-matrix)  
-14. [“Did you game the take-home?” defense](#14-did-you-game-the-take-home-defense)  
+14. [Tradeoffs and evaluation approach](#14-tradeoffs-and-evaluation-approach)  
 15. [What we are still missing](#15-what-we-are-still-missing)  
 16. [Healthcare / logistics / non-fintech](#16-healthcare--logistics--non-fintech)  
 17. [How to demo & what to say live](#17-how-to-demo--what-to-say-live)  
@@ -65,7 +68,7 @@ PTaaS / AppSec platforms produce **structured scanner findings** (severity, CWE,
 
 ### Our approach (one sentence)
 
-**Store decides which findings exist; hybrid IR retrieves soft matches; Gemma (optional) gates product scope and plans/narrates; server-side citation gate enforces that every `FINDING-*` ID was actually retrieved.**
+**Store decides which findings exist; hybrid IR retrieves soft matches; optional planner interprets ambiguous NL (not answers); generator narrates only verified rows; server-side citation gate enforces IDs were retrieved. Catalog IDs may be any scan scheme (`FINDING-001`, `SHIP-AUTH-01`, `web:xss:44`).**
 
 ---
 
@@ -79,7 +82,7 @@ PTaaS / AppSec platforms produce **structured scanner findings** (severity, CWE,
 | Anti-hallucination | Empty existence → abstain; citation gate; scope refuse off-topic |
 | Sample questions | Demos + `scripts/live_validate.py` |
 | Extensible knowledge | OWASP/CWE + **pattern** playbooks + optional `reference_documents` |
-| Not open-domain chat | Scope gate (rules + Gemma relatedness) |
+| Not open-domain chat | Obvious-junk rules + planner/retrieval support check; optional scope LLM is off by default |
 
 **Submission-ready means:** coherent design, demo works, tests pass, limitations honest—not “production multi-tenant GRC.”
 
@@ -109,12 +112,10 @@ PTaaS / AppSec platforms produce **structured scanner findings** (severity, CWE,
      BM25Index (in-process)
               │
      ┌────────┴────────┐
-     │  Scope gate     │  rules (structural / obvious junk)
-     │  + Gemma JSON   │  related?  (soft questions)
+     │ Rules + catalog │  structural filters / obvious junk
+     │ Optional planner│  ambiguous questions only
      └────────┬────────┘
-              │ related
-     Router rules + optional SemanticPlanner
-              │
+              │ validated plan
      FilterEngine (precision)  OR  HybridRetriever (soft)
               │
      AnswerGenerator (structured / LLM / template)
@@ -142,9 +143,9 @@ PTaaS / AppSec platforms produce **structured scanner findings** (severity, CWE,
 |----------|--------------|---------|
 | Vectors only | Incomplete CRITICAL list | SQLite FilterEngine for inventory |
 | LLM counts | Hallucinated N | Count from filtered set only |
-| SQL only | Soft NL weak | Hybrid BM25+dense+RRF+CE + planner |
+| SQL only | Soft NL weak | Hybrid BM25+dense+RRF + optional planner |
 | Tools-only agent | Latency; invent | Tools **off by default** |
-| Keyword scope only | Soft AppSec false refuse | **Gemma relatedness** for soft questions |
+| Keyword scope only | Soft AppSec false refuse | Fail-open to planner/retrieval; no verified support means abstain |
 
 ---
 
@@ -192,7 +193,8 @@ Decide if the question is **about this scan** vs off-topic chat.
 
 1. **Structural slots** (severity, CWE, FINDING-id, count, path-param, explicit `/api/...`) → **in scope**, no LLM.  
 2. **Obvious junk** (weather, joke, recipe, …) → **out of scope**, no LLM.  
-3. **Else** → **Gemma** (`USE_LLM_SCOPE_GATE=true`): JSON `{"related": true|false, ...}`.  
+3. **Else if** `USE_LLM_SCOPE_GATE=true` → optional scope LLM JSON `{"related": true|false, ...}`.  
+   **Default** is `false`: fail open to planner/retrieval after rules; planner high-conf `in_scope=false` can refuse. 
 4. LLM error → **fail-open** (`related=true`) so we don’t false-refuse scan questions.
 
 Out of scope → fixed refusal, `abstained=true`. **Stops before planner/answer.**
@@ -205,7 +207,7 @@ If rules not “confident” and planner enabled → LLM FilterSpec-like plan, m
 | Path | When | Mechanism |
 |------|------|-----------|
 | **Precision** | count, top_n, severity lists, topics/phrases, path_param, strict endpoints | `FilterEngine.apply_filters` on **full inventory** |
-| **Soft** | explain / free text / hybrid | BM25 ∪ dense → RRF → optional cross-encoder + knowledge |
+| **Soft** | explain / free text / hybrid | BM25 ∪ dense → RRF + knowledge (cross-encoder optional, off by default) |
 
 Empty existence → **abstain** (no invent).
 
@@ -230,7 +232,7 @@ Empty existence → **abstain** (no invent).
 # 7. LLM call budget (how many calls?)
 
 **Defaults:**  
-`USE_LLM_SCOPE_GATE=true`, `USE_SEMANTIC_PLANNER=true`, `USE_DYNAMIC_SYNTHESIS=true`, `USE_TOOL_AGENT=false`.
+`USE_LLM_SCOPE_GATE=false`, `USE_SEMANTIC_PLANNER=true`, `USE_DYNAMIC_SYNTHESIS=true`, `USE_TOOL_AGENT=false`, `RERANK_MODE=light`, `CROSS_ENCODER_ENABLED=false`.
 
 Chat model is typically **Cerebras `gemma-4-31b`** (OpenAI-compatible). Embeddings are a **separate** API (not counted as “chat LLM calls” below).
 
@@ -254,21 +256,17 @@ Chat model is typically **Cerebras `gemma-4-31b`** (OpenAI-compatible). Embeddin
 | “How many HIGH?” | **0** |
 | “Is there RCE?” (rules existence) | **0** |
 | “What’s the weather?” | **0** (rules out) |
-| Soft AppSec (“other users’ accounts?”) | **2–3** (scope + optional plan + answer) |
-| “How do I fix the SQLi…?” | **1–2** |
-| Soft + plan + answer + repair | **≤ 4** |
-
-### Scope gate `max_tokens`
-
-Scope JSON is tiny (`related`, `confidence`, `reason`). Implementation uses a **small max_tokens** (conservative, e.g. ~80) because output is short; if parse fails we **fail-open**. Raising to ~120–150 is optional safety, not required for correctness of the design.
+| Soft AppSec (“other users’ accounts?”) | **1–2** (optional plan + answer; no scope LLM by default) |
+| “How do I fix the SQLi…?” | **1** (generator) |
+| Soft + plan + answer + repair | **≤ 3** |
 
 ### Takeaway for viva
 
-> Hard inventory is free (0 chat LLM). Soft explain is usually 2–3 Gemma calls, not a long agent loop. Scope is one small JSON call when needed.
+> Hard inventory is free (0 chat LLM). Soft explain is usually 1–2 calls (planner optional + generator), not a long agent loop. Dedicated scope LLM is optional/off by default.
 
 ---
 
-# 8. Scope gate (Gemma relatedness)
+# 8. Scope and planner in_scope policy
 
 ### Why not keywords only?
 
@@ -281,16 +279,21 @@ A fixed topic list will both **false-refuse** soft security and **false-allow** 
 
 ### What we implemented
 
-File: `app/rag/scope.py`  
-Config: `USE_LLM_SCOPE_GATE` (default **true**)
+File: `app/rag/scope.py` + planner `in_scope` in `app/rag/plan_schema.py`  
+Config: `USE_LLM_SCOPE_GATE` (default **false**)
 
 ```text
 decide_scope(question, route, llm, endpoints):
   if structural scan slots → related=true   # no LLM
   if obvious off-topic regex → related=false # no LLM
-  if use_llm → Gemma JSON related yes/no
-  else → keyword fallback
+  if use_llm → optional scope LLM JSON related yes/no
+  else → fail open (soft questions reach planner/retrieval)
   on LLM error → related=true (fail-open)
+
+planner in_scope policy:
+  high-conf in_scope=false → refuse
+  malformed / low-conf out / timeout → fail open → retrieve
+  empty retrieval support → grounded abstain
 ```
 
 ### What “related” means
@@ -305,7 +308,7 @@ Fixed product-boundary text: only answer **ingested scan findings**; will not in
 
 ### Justification line for reviewers
 
-> Scope uses **cheap rules for obvious cases** and **Gemma for semantic relatedness** so we are not limited to keyword topics. The store still decides which findings exist after scope allows the question through.
+> Scope uses **cheap rules for obvious junk**. Soft questions fail open to constrained planner + retrieval; **no verified support → abstain**. Optional dedicated scope LLM exists but is off by default to keep the default path simple.
 
 ---
 
@@ -347,14 +350,14 @@ Zero-ops system of record; exact filters; multi-scan via `scan_id`.
 | `taxonomy.py` | AppSec topics → keywords/CWEs (domain knowledge) |
 | `synonyms.py` | Phrase expansion / concept bridges |
 | `endpoint_utils.py` | Soft NL → **catalog** paths |
-| `hybrid.py` | BM25 ∪ dense → RRF → CE |
-| `bm25_index.py`, `cross_encoder.py`, `vector_store.py` | IR stack |
+| `hybrid.py` | BM25 ∪ dense → RRF (default light path) |
+| `bm25_index.py`, `cross_encoder.py`, `vector_store.py` | IR stack; cross-encoder optional |
 
 ## 9.6 RAG — `app/rag/`
 
 | Module | Role |
 |--------|------|
-| **`scope.py`** | **Product boundary: rules + Gemma relatedness** |
+| **`scope.py`** | **Product boundary: structural/obvious-junk rules; optional scope LLM off by default** |
 | `router.py` | `rule_based_route` operators + intent (not answer packs) |
 | `planner.py` / `plan_schema.py` | Optional LLM FilterSpec |
 | `generator.py` | Structured / LLM / row-bound fallbacks |
@@ -409,19 +412,19 @@ Golden tests use **sample IDs** — **test coupling**, not runtime answer packs.
 | Concern | Default choice | Why |
 |---------|----------------|-----|
 | Embeddings | Qwen3-Embedding-8B (ModelScope) | Soft paraphrase |
-| Chat / plan / scope / answer | Cerebras `gemma-4-31b` | Latency + quality |
+| Chat plan / answer | Cerebras `gemma-4-31b` | Latency + quality; optional scope LLM is off by default |
 | Cross-encoder | MiniLM optional | Rerank precision |
 | Tools agent | Off | Latency |
 
 ### Important env knobs
 
 ```text
-USE_LLM_SCOPE_GATE=true      # Gemma relatedness for soft questions
+USE_LLM_SCOPE_GATE=false     # dedicated scope LLM off; rules + planner in_scope
 USE_SEMANTIC_PLANNER=true    # LLM FilterSpec when rules soft
 USE_DYNAMIC_SYNTHESIS=true   # LLM explain/remediate
 USE_TOOL_AGENT=false         # multi-round tools off
 LLM_BASE_URL / LLM_MODEL / LLM_API_KEY
-RERANK_MODE=auto|light|cross_encoder
+RERANK_MODE=light            # default; CE optional via CROSS_ENCODER_ENABLED
 ```
 
 ---
@@ -455,7 +458,7 @@ RERANK_MODE=auto|light|cross_encoder
 - Question → FINDING-00X answer dictionary  
 - SSRF always `source_url` / fixed import path  
 - Auth-triad / SSRF special answer templates (removed)  
-- Scope for soft NL = **Gemma**, not only topics  
+- Soft NL fails open to planner + retrieval; it is not limited to fixed topic keywords
 
 ---
 
@@ -466,9 +469,8 @@ RERANK_MODE=auto|light|cross_encoder
 | SQLite truth | Exact inventory | Not multi-writer scale |
 | FilterEngine first | No count hallucinations | Soft NL needs IR/LLM |
 | Hybrid IR | Lexical + semantic | Complexity |
-| **Gemma scope gate** | Soft relatedness | +0–1 small LLM call |
-| Structural skip for scope | 0 cost on hard Qs | — |
-| Fail-open on scope LLM error | Don’t false-refuse scan | Rare off-topic may slip if LLM down |
+| Planner `in_scope` + retrieval support | Soft relatedness without a required extra call | Low-confidence plans fail open, so unsupported requests abstain later |
+| Structural / obvious-junk rules | 0 cost on clear cases | Small finite rule list |
 | Citation gate | Hard anti-hallucination | May strip over-eager refs |
 | Row-bound templates offline | Works without answer LLM | Less fluent |
 | Tools off | Latency | Fewer multi-hop tool strategies |
@@ -478,7 +480,7 @@ RERANK_MODE=auto|light|cross_encoder
 
 ---
 
-# 14. “Did you game the take-home?” defense
+# 14. Tradeoffs and evaluation approach
 
 ### What gaming would look like (we do **not**)
 
@@ -489,24 +491,26 @@ if "SSRF" in question: return canned FINDING-007 essay
 ### What we did (normal engineering)
 
 1. Built dual-store hybrid for assignment failure modes (inventory, abstain, citations).  
-2. Used the sample for demos/tests.  
-3. Curated AppSec taxonomy + pattern playbooks.  
+2. Used the sample for demos/tests **and** a **held-out logistics scan** with different IDs/endpoints.  
+3. Curated AppSec taxonomy + pattern playbooks (explain verified rows; never prove existence).  
 4. **Removed** demo-specific generator templates and instance-flavored playbook prose.  
-5. Endpoint mapping via **ingested catalog**.  
-6. Scope via **rules + Gemma**, not a fixed “only these 15 answers” map.  
-7. Live validation suite on the sample for quality measurement.
+5. Endpoint + finding-ID mapping via **ingested catalog** (not only `FINDING-\\d+`).  
+6. Scope via **rules + planner `in_scope`** (dedicated scope LLM optional/off by default).  
+7. Vector filters **fail closed**; multi-scan isolation tests.  
+8. Live validation suite on the sample for quality measurement.
 
 ### 60-second generality demo
 
-1. Edit a finding endpoint/title; re-ingest.  
-2. Ask about that endpoint / severity → tracks **store**.  
+1. Ingest `data/heldout_scan.json`; ask severity/count → store-backed numbers.  
+2. Ask about `SHIP-AUTH-01` / `web:xss:44` → catalog ID match.  
 3. Ask for absent class (RCE) → abstain.  
-4. Ask weather → scope refuse.  
-5. Soft “other users’ data” → Gemma related + hybrid path.
+4. Ask weather → deterministic refuse.  
+5. Soft “other users’ data” → hybrid path (no required scope LLM).  
+6. Query sample and held-out with explicit `scan_id` → no ID leakage.
 
 ### One-liner
 
-> Goldens are sample-coupled. Runtime is **store-coupled** and **schema-general**. Those are different.
+> Goldens may be sample-coupled. Runtime is **store-coupled** and **schema-general**, with held-out proof that IDs and domains are not hardcoded.
 
 ---
 
@@ -529,7 +533,7 @@ if "SSRF" in question: return canned FINDING-007 essay
 ### Evaluation
 - Live suite primarily on sample  
 - LLM variance on prose  
-- Scope gate quality depends on Gemma (usually strong; not formally red-teamed)  
+- Planner/retrieval quality on unusual soft phrasing is not formally red-teamed
 
 ### Explicitly out of scope for take-home
 - Full GRC chatbot  
@@ -558,8 +562,8 @@ if "SSRF" in question: return canned FINDING-007 essay
 1. `/health` — counts, model, stack  
 2. CRITICAL list — **0 LLM**, exact  
 3. RCE existence — abstain  
-4. Weather — **scope refuse**  
-5. Soft access-control phrasing — Gemma scope + hybrid/answer  
+4. Weather — deterministic product-boundary refusal  
+5. Soft access-control phrasing — optional planner + hybrid/answer  
 6. Explain/fix SQLi or IDOR — row-bound endpoint/param  
 7. Optional: re-ingest modified JSON  
 
@@ -573,7 +577,7 @@ if "SSRF" in question: return canned FINDING-007 essay
 
 - Store-first inventory  
 - Citation-gated IDs  
-- Scope boundary (rules + Gemma)  
+- Scope boundary (rules + optional planner `in_scope` + retrieval support)
 - Catalog endpoints + pattern knowledge  
 - Honest limits  
 
@@ -582,22 +586,22 @@ if "SSRF" in question: return canned FINDING-007 essay
 # 18. Likely reviewer questions (Q&A)
 
 ### Q: Why regex in the router?
-**A:** Operators (count, severity, CWE, path-param). Soft language uses taxonomy, catalog, hybrid, planner, and Gemma scope—not an answer key.
+**A:** Operators (count, severity, CWE, path-param). Soft language uses taxonomy, catalog, hybrid retrieval, and an optional planner—not an answer key.
 
 ### Q: Why not embeddings for everything?
 **A:** Inventory completeness and exact severity/CWE algebra fail under top‑k vectors alone.
 
 ### Q: How do you know a question is off-topic?
-**A:** Structural rules and obvious junk short-circuit; otherwise **Gemma returns `related` JSON**. Not keyword-only for soft AppSec.
+**A:** Structural rules and obvious junk short-circuit; otherwise the request fails open to the planner and retrieval. A high-confidence planner out-of-scope result may refuse, while no verified support abstains.
 
 ### Q: How many LLM calls per query?
-**A:** Hard inventory **0**. Soft explain typically **2–3** (scope ± plan + answer). Tools off by default. Max ~4 with repair.
+**A:** Hard inventory **0**. Clear explain/fix is usually **1** generator call; ambiguous soft questions are typically **2** (planner + answer). One repair makes the normal maximum **3**. Tools are off by default.
 
 ### Q: Did you hardcode FINDING-007 for SSRF?
 **A:** No. Retrieval + row fields + pattern playbook. No fixed ID pack.
 
 ### Q: What if Gemma is down for scope?
-**A:** Fail-open to related=true for non-obvious cases; still citation-gated after retrieval. Empty store / obvious junk still refuse without LLM.
+**A:** The optional scope LLM is off by default. Non-obvious questions fail open to planner/retrieval; unsupported requests abstain, while empty store and obvious junk refuse deterministically.
 
 ### Q: Is this only for the 15 sample findings?
 **A:** Sample is the demo fixture. Ingest accepts any N of the same schema; catalog and filters are dynamic.
@@ -615,7 +619,7 @@ if "SSRF" in question: return canned FINDING-007 essay
 | Priority | Path | Know |
 |----------|------|------|
 | P0 | `app/services/query_service.py` | Full orchestration |
-| P0 | `app/rag/scope.py` | **Scope gate + Gemma relatedness** |
+| P0 | `app/rag/scope.py` | **Scope rules; optional LLM gate is off by default** |
 | P0 | `app/retrieval/filter_engine.py` | Precision path |
 | P0 | `app/rag/router.py` | Rules / operators |
 | P0 | `app/rag/generator.py` | Answer paths + row fallbacks |
@@ -643,9 +647,9 @@ if "SSRF" in question: return canned FINDING-007 essay
 | **FilterSpec / FilterEngine** | Deterministic set algebra on full inventory |
 | **Precision path** | Inventory without free-form LLM counts |
 | **Soft path** | Hybrid IR + LLM narration |
-| **Scope gate** | Is this question about the scan? (rules + Gemma) |
-| **Relatedness** | LLM JSON `related: true\|false` for soft questions |
-| **Fail-open (scope)** | On LLM error, allow through rather than false refuse |
+| **Scope boundary** | Is this question about the scan? Obvious junk refuses; soft questions reach planner/retrieval |
+| **Planner `in_scope`** | Conservative LLM hint: only high-confidence false refuses |
+| **Fail-open (scope)** | Planner errors/low-confidence out-of-scope continue to retrieval rather than false-refuse |
 | **Abstain** | Refuse to invent when scan doesn’t support claim |
 | **Citation gate** | Server validation of finding IDs |
 | **Catalog** | Distinct endpoints from current scan |
@@ -659,8 +663,8 @@ if "SSRF" in question: return canned FINDING-007 essay
 
 # Closing: 30-second pitch
 
-> AppSecure is a **store-first hybrid RAG** for application security findings. Inventory and existence are exact (SQLite). Soft questions use hybrid retrieval and Gemma for **scope**, optional **planning**, and **narration**, always bound to retrieved rows with a **citation gate**. Knowledge is pattern-level AppSec. The demo target is a fintech mock scan; ingest and query are **schema-general**. Hard questions cost **zero** chat LLM calls; soft explain is usually **two to three**. We optimized for **anti-hallucination and assignment failure modes**, not open-domain chat. Limits are soft NL coverage, evaluation breadth, and production multi-tenancy—not a secret answer key over 15 findings.
+> AppSecure is a **store-first hybrid RAG** for application security findings. Inventory and existence are exact (SQLite). Soft questions use optional **planning** + hybrid retrieval and **narration**, always bound to retrieved rows with a **citation gate**. Knowledge is pattern-level AppSec. Demos include sample + held-out scans; ingest and query are **schema-general**. Hard questions cost **zero** chat LLM calls; soft explain is usually **one to two**. We optimized for **anti-hallucination and assignment failure modes**, not open-domain chat. Limits are soft NL coverage and production multi-tenancy—not a secret answer key over one sample.
 
 ---
 
-*Document version: updated for LLM scope gate (`USE_LLM_SCOPE_GATE`), call-budget section, generalization (catalog endpoints, pattern playbooks, row-bound templates), and off-topic refusal behavior.*
+*Document version: essay-aligned defaults (scope LLM off, CE off, RRF light), held-out evaluation, catalog-aware IDs, planner `in_scope` fail-open policy. No public quality-score claims.*
