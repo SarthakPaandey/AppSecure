@@ -322,6 +322,14 @@ Coverage includes: severity/OWASP filters, RCE abstain, citation stripping, prec
 
 ---
 
+## Study guide / design defense
+
+For architecture justification, tradeoffs, “is this gamed?”, what’s missing, and viva Q&A, see:
+
+**[`docs/STUDY_GUIDE_AND_JUSTIFICATION.md`](docs/STUDY_GUIDE_AND_JUSTIFICATION.md)**
+
+---
+
 ## License / assignment
 
 Take-home implementation for **AppSecure** (PTaaS). Dataset is fictional (`api.wealthpilot.io`). OWASP/CWE summaries include official links for citation. Design history: earlier notes in session plans; **this README is authoritative for the shipped system**.
