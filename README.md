@@ -238,14 +238,14 @@ Layered defense: **prompts alone are not a control**.
 
 ### Latency (target &lt; 10s)
 
-| Path | Observed order |
-|------|----------------|
-| Count / top‑N / strict filters | **milliseconds** |
+| Path | Observed order (typical measured run) |
+|------|----------------------------------------|
+| Count / top‑N / strict filters | **milliseconds – sub-second** |
 | Many list / existence filters | **&lt; 1–2 s** |
-| LLM explain / soft synthesis | **usually a few seconds**; depends on provider |
+| Soft explain / remediate | **often &lt; 2 s**; may use template on LLM fail-soft |
+| Live suite p50 / p95 | **~0.5 s / ~1.1 s** (one run; not an SLA) |
 
-Inventory does **not** need the LLM. Soft paths use at most planner + answer (planner skipped when rules are already confident).
-
+Inventory does **not** need the LLM. Soft paths use at most planner + answer (planner skipped when rules are already confident). Provider hang → timeout → **store template**, not multi-minute stall.
 ---
 
 ## Project layout
@@ -283,17 +283,30 @@ pytest -q
 Coverage includes:
 
 - Severity / OWASP / precision operators (count, top‑N, endpoint)
-- Citation gate + RCE/unsupported existence abstain  
-- Vector filter **fail-closed** isolation  
-- **Held-out scan** (different domain, arbitrary IDs, multi-scan isolation)  
-- Planner merge / catalog validation / `in_scope` policy  
-- Golden hard cases and API smoke  
+- Citation gate + RCE/unsupported existence abstain
+- Vector filter **fail-closed** isolation
+- **Held-out scan** (different domain, arbitrary IDs, multi-scan isolation)
+- Planner merge / catalog validation / `in_scope` policy
+- Fail-soft LLM/embed timeouts → store templates
+- Golden hard cases and API smoke
 
 Live validation (server running + real keys):
 
 ```bash
 .venv/bin/python scripts/live_validate.py
 ```
+
+### Measured evidence (one run — not an SLA)
+
+```text
+Offline (clean venv / suite): 144 passed
+Live correctness:             43/43
+README smoke (sample + held-out): OK
+lat_p50:                      ~0.4–0.6 s
+lat_p95:                      ~1.0–1.1 s
+```
+
+Latency is **provider-dependent**; numbers are a single measured run, not a guarantee. Some soft answers use **`template`** when the chat model times out or returns invalid JSON — intentional **fail-soft** (still store-bound citations). Full command log, paraphrase probes, and limitations: **[`docs/VALIDATION.md`](docs/VALIDATION.md)**.
 
 ---
 

@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY data/knowledge ./data/knowledge
 COPY data/sample_findings.json ./data/sample_findings.json
+COPY data/heldout_scan.json ./data/heldout_scan.json
 
 ENV DATA_DIR=/app/data
 ENV SQLITE_PATH=/app/data/app.db

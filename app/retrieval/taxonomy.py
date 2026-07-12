@@ -60,6 +60,19 @@ TOPICS: dict[str, Topic] = {
         keywords=("sql injection", "sql query", "parameterized query"),
         abbrevs=("sqli", "sql-i"),
     ),
+    "command_injection": Topic(
+        name="command_injection",
+        cwes=("CWE-78",),
+        owasps=("A03",),
+        keywords=(
+            "command injection",
+            "os command injection",
+            "os command",
+            "shell injection",
+            "arbitrary command",
+        ),
+        related=("injection",),
+    ),
     "xss": Topic(
         name="xss",
         cwes=("CWE-79",),
@@ -200,9 +213,11 @@ TOPICS: dict[str, Topic] = {
 
 
 ABBREV_TO_TOPICS: dict[str, tuple[str, ...]] = {
-    "sqli": ("sql_injection", "injection"),
-    "sql-i": ("sql_injection", "injection"),
-    "sql injection": ("sql_injection", "injection"),
+    # Prefer leaf subtypes; parent "injection" is for broad family questions only
+    "sqli": ("sql_injection",),
+    "sql-i": ("sql_injection",),
+    "sql injection": ("sql_injection",),
+    "command injection": ("command_injection",),
     "idor": ("authorization",),
     "bola": ("authorization",),
     "ssrf": ("ssrf",),
@@ -213,15 +228,26 @@ ABBREV_TO_TOPICS: dict[str, tuple[str, ...]] = {
     "ato": ("authentication",),
 }
 
+# When a leaf subtype is present, drop the broad parent family for routing.
+_PARENT_SUPPRESSED_BY_CHILD: dict[str, frozenset[str]] = {
+    "injection": frozenset(
+        {"sql_injection", "command_injection", "xss", "ssrf"}
+    ),
+}
+
 
 def topic_names_for_text(text: str, exclude: Iterable[str] | None = None) -> list[str]:
-    """Return topic names that match the given text."""
+    """Return topic names that match the given text.
+
+    Specific subtypes (e.g. command_injection, sql_injection) suppress the broad
+    parent ``injection`` so existence filters do not OR-match the whole family.
+    """
     ex = {e.lower() for e in (exclude or [])}
     out: list[str] = []
     seen: set[str] = set()
     t = (text or "").lower()
-    # Exact abbreviations first
-    for abbrev, topics in ABBREV_TO_TOPICS.items():
+    # Exact abbreviations / multi-word keys first (longer keys preferred)
+    for abbrev, topics in sorted(ABBREV_TO_TOPICS.items(), key=lambda kv: -len(kv[0])):
         if abbrev in t:
             for name in topics:
                 if name not in seen and name not in ex:
@@ -232,6 +258,13 @@ def topic_names_for_text(text: str, exclude: Iterable[str] | None = None) -> lis
         if name not in seen and name not in ex and topic.matches(t):
             seen.add(name)
             out.append(name)
+    # Suppress parent when a more specific child is present
+    drop: set[str] = set()
+    for parent, children in _PARENT_SUPPRESSED_BY_CHILD.items():
+        if parent in seen and (seen & children):
+            drop.add(parent)
+    if drop:
+        out = [n for n in out if n not in drop]
     return out
 
 

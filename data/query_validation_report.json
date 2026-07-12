@@ -14,8 +14,8 @@
         "FINDING-001",
         "FINDING-004"
       ],
-      "latency_ms": 344,
-      "wall_s": 0.35,
+      "latency_ms": 474,
+      "wall_s": 0.48,
       "answer_preview": "Matching finding(s) from the scan (2), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Injecti",
       "issues": []
     },
@@ -29,9 +29,9 @@
       "findings_referenced": [
         "FINDING-002"
       ],
-      "latency_ms": 263,
-      "wall_s": 0.27,
-      "answer_preview": "Explanation based on **retrieved finding rows** (no assumed product paths or parameters):  ### FINDING-002: Broken Object Level Authorization (IDOR) on Account Details - **Severity:** HIGH - **Endpoint:** GET /api/v1/acc",
+      "latency_ms": 522,
+      "wall_s": 0.53,
+      "answer_preview": "The endpoint `GET /api/v1/accounts/{id}` is vulnerable to Broken Object Level Authorization (IDOR). An authenticated user can manipulate the `id` path parameter to access account details belonging to other users, as demo",
       "issues": []
     },
     {
@@ -44,8 +44,8 @@
       "findings_referenced": [
         "FINDING-001"
       ],
-      "latency_ms": 699,
-      "wall_s": 0.7,
+      "latency_ms": 1226,
+      "wall_s": 1.23,
       "answer_preview": "Remediation guidance based on **scan store fields** (endpoint, parameter, remediation_hint):  ### FINDING-001: SQL Injection in Transaction Search - **Severity:** CRITICAL - **Endpoint:** GET /api/v1/transactions/search ",
       "issues": []
     },
@@ -60,8 +60,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 784,
-      "wall_s": 0.79,
+      "latency_ms": 10341,
+      "wall_s": 10.35,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -73,8 +73,8 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 499,
-      "wall_s": 0.5,
+      "latency_ms": 1319,
+      "wall_s": 1.32,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
@@ -91,8 +91,8 @@
         "FINDING-015",
         "FINDING-009"
       ],
-      "latency_ms": 535,
-      "wall_s": 0.54,
+      "latency_ms": 631,
+      "wall_s": 0.64,
       "answer_preview": "Matching finding(s) from the scan (4), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/v1/auth/verify; CWE-287; A07:2021 - Iden",
       "issues": []
     },
@@ -120,8 +120,8 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 785,
-      "wall_s": 0.79,
+      "latency_ms": 998,
+      "wall_s": 1.0,
       "answer_preview": "Scan findings summary (15 finding(s)), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (CWE-89; A03:2021 - Injection) - **CRITICAL** `FINDING-004`:",
       "issues": []
     },
@@ -135,8 +135,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 834,
-      "wall_s": 0.84,
+      "latency_ms": 822,
+      "wall_s": 0.83,
       "answer_preview": "Explanation based on **retrieved finding rows** (no assumed product paths or parameters):  ### FINDING-007: Server-Side Request Forgery (SSRF) in Document Import - **Severity:** HIGH - **Endpoint:** POST /api/v1/document",
       "issues": []
     },
@@ -150,8 +150,8 @@
       "findings_referenced": [
         "FINDING-005"
       ],
-      "latency_ms": 320,
-      "wall_s": 0.32,
+      "latency_ms": 268,
+      "wall_s": 0.27,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **MEDIUM** `FINDING-005`: Sensitive Data Exposure in API Error Response (POST /api/v1/payments/initiate; CWE-209; A04:2021 - Insecure Design)",
       "issues": []
     },
@@ -170,8 +170,8 @@
         "FINDING-007",
         "FINDING-008"
       ],
-      "latency_ms": 1696,
-      "wall_s": 1.7,
+      "latency_ms": 1819,
+      "wall_s": 1.82,
       "answer_preview": "**Related findings, different control families.**  ### Findings (from scan store) - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; param=`account_id`; CWE-89) \u2014 family: ",
       "issues": []
     },
@@ -183,8 +183,8 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 464,
-      "wall_s": 0.47,
+      "latency_ms": 492,
+      "wall_s": 0.5,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
@@ -196,7 +196,7 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 471,
+      "latency_ms": 473,
       "wall_s": 0.48,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
@@ -209,7 +209,7 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 270,
+      "latency_ms": 266,
       "wall_s": 0.27,
       "answer_preview": "No matching findings were found in the ingested scan for this question. I only answer from **ingested scan findings** (and related AppSec knowledge). I will not invent vulnerabilities, endpoints, or finding IDs. Try a mo",
       "issues": []
@@ -222,7 +222,7 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 267,
+      "latency_ms": 270,
       "wall_s": 0.27,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
@@ -251,8 +251,8 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 803,
-      "wall_s": 0.81,
+      "latency_ms": 704,
+      "wall_s": 0.71,
       "answer_preview": "Findings grouped by **shared root-cause / control family** (not only by severity):  ### Authentication / session (JWT & identity) (4) - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/",
       "issues": []
     },
@@ -270,8 +270,8 @@
         "FINDING-015",
         "FINDING-009"
       ],
-      "latency_ms": 267,
-      "wall_s": 0.27,
+      "latency_ms": 270,
+      "wall_s": 0.28,
       "answer_preview": "Matching finding(s) from the scan (5), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/v1/auth/verify; CWE-287; A07:2021 - Iden",
       "issues": []
     },
@@ -287,8 +287,8 @@
         "FINDING-006",
         "FINDING-009"
       ],
-      "latency_ms": 992,
-      "wall_s": 1.0,
+      "latency_ms": 830,
+      "wall_s": 0.84,
       "answer_preview": "**Same broad control family, different specific controls.**  ### Findings (from scan store) - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT None Algorithm (POST /api/v1/auth/verify; param=`Authorization heade",
       "issues": []
     },
@@ -307,7 +307,7 @@
         "FINDING-011",
         "FINDING-014"
       ],
-      "latency_ms": 4,
+      "latency_ms": 5,
       "wall_s": 0.01,
       "answer_preview": "**HIGH findings** classified by problem family (using each finding's stored severity + CWE/title \u2014 not guessed):  ### Access-control problems - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account ",
       "issues": []
@@ -323,8 +323,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 716,
-      "wall_s": 0.72,
+      "latency_ms": 694,
+      "wall_s": 0.7,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -339,7 +339,7 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 3,
+      "latency_ms": 2,
       "wall_s": 0.01,
       "answer_preview": "Matching finding(s) from the scan (2), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; parameter=`i",
       "issues": []
@@ -355,8 +355,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 319,
-      "wall_s": 0.32,
+      "latency_ms": 285,
+      "wall_s": 0.29,
       "answer_preview": "**Same broad control family, different specific controls.**  ### Findings (from scan store) - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; param=`id (pat",
       "issues": []
     },
@@ -370,8 +370,8 @@
       "findings_referenced": [
         "FINDING-015"
       ],
-      "latency_ms": 264,
-      "wall_s": 0.27,
+      "latency_ms": 283,
+      "wall_s": 0.29,
       "answer_preview": "Explanation based on **retrieved finding rows** (no assumed product paths or parameters):  ### FINDING-015: Hardcoded API Key in Client-Side JavaScript - **Severity:** MEDIUM - **Endpoint:** GET /static/js/app.bundle.js ",
       "issues": []
     },
@@ -387,7 +387,7 @@
         "FINDING-004",
         "FINDING-002"
       ],
-      "latency_ms": 4,
+      "latency_ms": 2,
       "wall_s": 0.01,
       "answer_preview": "**Top 3 findings to fix first** before production go-live (ordered by severity, then business impact):  1. **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89)    - **",
       "issues": []
@@ -416,7 +416,7 @@
         "FINDING-009",
         "FINDING-010"
       ],
-      "latency_ms": 6,
+      "latency_ms": 5,
       "wall_s": 0.01,
       "answer_preview": "Matching finding(s) from the scan (15), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Inject",
       "issues": []
@@ -431,8 +431,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 601,
-      "wall_s": 0.61,
+      "latency_ms": 530,
+      "wall_s": 0.53,
       "answer_preview": "Explanation based on **retrieved finding rows** (no assumed product paths or parameters):  ### FINDING-007: Server-Side Request Forgery (SSRF) in Document Import - **Severity:** HIGH - **Endpoint:** POST /api/v1/document",
       "issues": []
     },
@@ -446,8 +446,8 @@
       "findings_referenced": [
         "FINDING-001"
       ],
-      "latency_ms": 836,
-      "wall_s": 0.84,
+      "latency_ms": 708,
+      "wall_s": 0.71,
       "answer_preview": "Remediation guidance based on **scan store fields** (endpoint, parameter, remediation_hint):  ### FINDING-001: SQL Injection in Transaction Search - **Severity:** CRITICAL - **Endpoint:** GET /api/v1/transactions/search ",
       "issues": []
     },
@@ -463,8 +463,8 @@
         "FINDING-004",
         "FINDING-008"
       ],
-      "latency_ms": 954,
-      "wall_s": 0.96,
+      "latency_ms": 760,
+      "wall_s": 0.76,
       "answer_preview": "Remediation guidance (multiple control families \u2014 fix per family using each finding's store fields):  ### FINDING-002: Broken Object Level Authorization (IDOR) on Account Details - **Severity:** HIGH - **Endpoint:** GET ",
       "issues": []
     },
@@ -478,8 +478,8 @@
       "findings_referenced": [
         "FINDING-004"
       ],
-      "latency_ms": 906,
-      "wall_s": 0.91,
+      "latency_ms": 898,
+      "wall_s": 0.9,
       "answer_preview": "Remediation guidance based on **scan store fields** (endpoint, parameter, remediation_hint):  ### FINDING-004: Authentication Bypass via JWT None Algorithm - **Severity:** CRITICAL - **Endpoint:** POST /api/v1/auth/verif",
       "issues": []
     },
@@ -491,7 +491,7 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 3,
+      "latency_ms": 4,
       "wall_s": 0.01,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
@@ -504,8 +504,8 @@
       "answer_source": "abstain",
       "model_used": null,
       "findings_referenced": [],
-      "latency_ms": 459,
-      "wall_s": 0.46,
+      "latency_ms": 467,
+      "wall_s": 0.47,
       "answer_preview": "No matching findings were found in the ingested scan data for this question. In particular, this scan does not contain evidence of the vulnerability type you asked about. I will not invent findings, endpoints, or severit",
       "issues": []
     },
@@ -518,11 +518,10 @@
       "model_used": null,
       "findings_referenced": [
         "FINDING-001",
-        "FINDING-007",
         "FINDING-003"
       ],
-      "latency_ms": 789,
-      "wall_s": 0.79,
+      "latency_ms": 537,
+      "wall_s": 0.54,
       "answer_preview": "Explanation based on **retrieved finding rows** (no assumed product paths or parameters):  ### FINDING-001: SQL Injection in Transaction Search - **Severity:** CRITICAL - **Endpoint:** GET /api/v1/transactions/search - *",
       "issues": []
     },
@@ -538,8 +537,8 @@
         "FINDING-015",
         "FINDING-009"
       ],
-      "latency_ms": 271,
-      "wall_s": 0.28,
+      "latency_ms": 628,
+      "wall_s": 0.63,
       "answer_preview": "Matching finding(s) from the scan (3), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-006`: Missing Rate Limiting on Login Endpoint (POST /api/v1/auth/login; CWE-307; A07:2021 - Identification",
       "issues": []
     },
@@ -560,8 +559,8 @@
         "FINDING-011",
         "FINDING-014"
       ],
-      "latency_ms": 712,
-      "wall_s": 0.72,
+      "latency_ms": 782,
+      "wall_s": 0.79,
       "answer_preview": "Based on the scan data, 8 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Injecti",
       "issues": []
     },
@@ -576,8 +575,8 @@
         "FINDING-002",
         "FINDING-008"
       ],
-      "latency_ms": 756,
-      "wall_s": 0.76,
+      "latency_ms": 808,
+      "wall_s": 0.81,
       "answer_preview": "Based on the scan data, 2 finding(s) match your filter (ordered by severity CRITICAL \u2192 LOW):  - **HIGH** `FINDING-002`: Broken Object Level Authorization (IDOR) on Account Details (GET /api/v1/accounts/{id}; CWE-639; A01",
       "issues": []
     },
@@ -607,7 +606,7 @@
         "FINDING-001",
         "FINDING-004"
       ],
-      "latency_ms": 4,
+      "latency_ms": 2,
       "wall_s": 0.01,
       "answer_preview": "There are **2** CRITICAL finding(s) in this scan:  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89) - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT N",
       "issues": []
@@ -624,7 +623,7 @@
         "FINDING-004"
       ],
       "latency_ms": 1,
-      "wall_s": 0.0,
+      "wall_s": 0.01,
       "answer_preview": "There are **2** CRITICAL finding(s) in this scan:  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89) - **CRITICAL** `FINDING-004`: Authentication Bypass via JWT N",
       "issues": []
     },
@@ -640,7 +639,7 @@
         "FINDING-004",
         "FINDING-002"
       ],
-      "latency_ms": 2,
+      "latency_ms": 4,
       "wall_s": 0.01,
       "answer_preview": "**Top 3** highest-severity finding(s) from the scan:  1. **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89) 2. **CRITICAL** `FINDING-004`: Authentication Bypass via ",
       "issues": []
@@ -665,8 +664,8 @@
         "FINDING-013",
         "FINDING-010"
       ],
-      "latency_ms": 318,
-      "wall_s": 0.32,
+      "latency_ms": 302,
+      "wall_s": 0.31,
       "answer_preview": "Matching finding(s) from the scan (11), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **CRITICAL** `FINDING-001`: SQL Injection in Transaction Search (GET /api/v1/transactions/search; CWE-89; A03:2021 - Inject",
       "issues": []
     },
@@ -680,8 +679,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 326,
-      "wall_s": 0.33,
+      "latency_ms": 268,
+      "wall_s": 0.27,
       "answer_preview": "Matching finding(s) from the scan (1), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **HIGH** `FINDING-007`: Server-Side Request Forgery (SSRF) in Document Import (POST /api/v1/documents/import; CWE-918; A10:2",
       "issues": []
     },
@@ -695,7 +694,7 @@
       "findings_referenced": [
         "FINDING-015"
       ],
-      "latency_ms": 380,
+      "latency_ms": 376,
       "wall_s": 0.38,
       "answer_preview": "Yes \u2014 the scan contains 1 matching finding(s):  - **MEDIUM** `FINDING-015`: Hardcoded API Key in Client-Side JavaScript (GET /static/js/app.bundle.js; CWE-798; A07:2021 - Identification and Authentication Failures)",
       "issues": []
@@ -710,8 +709,8 @@
       "findings_referenced": [
         "FINDING-005"
       ],
-      "latency_ms": 381,
-      "wall_s": 0.39,
+      "latency_ms": 257,
+      "wall_s": 0.26,
       "answer_preview": "Matching finding(s) from the scan (1), ordered by severity (CRITICAL > HIGH > MEDIUM > LOW):  - **MEDIUM** `FINDING-005`: Sensitive Data Exposure in API Error Response (POST /api/v1/payments/initiate; CWE-209; A04:2021 -",
       "issues": []
     },
@@ -725,8 +724,8 @@
       "findings_referenced": [
         "FINDING-007"
       ],
-      "latency_ms": 1084,
-      "wall_s": 1.09,
+      "latency_ms": 701,
+      "wall_s": 0.71,
       "answer_preview": "Remediation guidance based on **scan store fields** (endpoint, parameter, remediation_hint):  ### FINDING-007: Server-Side Request Forgery (SSRF) in Document Import - **Severity:** HIGH - **Endpoint:** POST /api/v1/docum",
       "issues": []
     }
@@ -739,18 +738,18 @@
     "latency_ms": {
       "count": 43,
       "min": 1,
-      "max": 1696,
-      "avg": 474.3,
-      "p50": 381.0,
-      "p95": 988.2
+      "max": 10341,
+      "avg": 721.8,
+      "p50": 474.0,
+      "p95": 1309.7
     },
     "wall_s": {
       "count": 43,
-      "min": 0.0,
-      "max": 1.7,
-      "avg": 0.48,
-      "p50": 0.39,
-      "p95": 1.0
+      "min": 0.01,
+      "max": 10.35,
+      "avg": 0.73,
+      "p50": 0.48,
+      "p95": 1.31
     },
     "intents": {
       "list": 14,

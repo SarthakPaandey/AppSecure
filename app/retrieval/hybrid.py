@@ -24,6 +24,7 @@ from app.retrieval.bm25_index import FindingsBM25Index, reciprocal_rank_fusion
 from app.retrieval.findings_store import FindingRecord, FindingsStore, sort_by_severity
 from app.retrieval.cross_encoder import CrossEncoderReranker, get_cross_encoder_reranker
 from app.retrieval.rerank import hybrid_rerank_findings
+from app.retrieval.existence_subtype import filter_for_existence_subtype
 from app.retrieval.synonyms import (
     expand_keywords,
     extract_search_phrases,
@@ -258,6 +259,8 @@ class HybridRetriever:
                     strong_phrases=strong_phrases,
                     clauses=clauses,
                 )
+            # Specific subtype (command injection, XSS, …) needs direct row support
+            findings = filter_for_existence_subtype(question, findings)
             if class_constraints and findings:
                 filtered = self._filter_by_class_constraints(findings, class_constraints)
                 findings = filtered  # may be empty
