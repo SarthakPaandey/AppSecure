@@ -281,6 +281,7 @@ class QueryService:
             or route.finding_ids
             or route.classify_problem_buckets
             or getattr(route, "path_param_only", False)
+            or route.intent in {"summary", "cluster"}
         ):
             return True
         if route.intent in {"explain", "remediation", "compare"} and (

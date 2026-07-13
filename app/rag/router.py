@@ -155,6 +155,10 @@ def rule_based_route(question: str) -> RouteResult:
         "permit", "permits", "allow", "allows", "have", "has", "support",
         "expose", "exposes", "return", "returns", "accept", "accepts",
         "require", "requires", "enable", "enables", "use", "uses",
+        # "endpoints like 169.254…" / "metadata endpoints" — not resource names
+        "like", "such", "from", "with", "via", "using", "about", "into",
+        "only", "first", "next", "also", "metadata", "detail", "details",
+        "and", "or", "name", "names", "band", "bands", "type", "types",
     }
     for m in re.finditer(
         r"\b([a-z][a-z0-9_-]{2,})\s+endpoint\b|"
@@ -562,9 +566,32 @@ def rule_based_route(question: str) -> RouteResult:
             "summarize",
             "overview",
             "sorted by severity",
+            "executive summary",
         )
     ) and not result.top_n:
         result.intent = "summary"
+        # Multi-part / leadership summaries mention severity and topics as
+        # sections to cover — do not AND those as FilterEngine constraints.
+        multi_part = bool(
+            re.search(
+                r"\([123]\)|\b1[\).]|\b2[\).]|\b3[\).]|"
+                r"\bcovering\b|\binclude\b.*\band\b|"
+                r"\btotal\b.*\bseverity\b",
+                q,
+            )
+        )
+        if multi_part or "executive" in q:
+            result.severities = []
+            result.severity = None
+            result.topics = []
+            result.include_phrases = []
+            result.class_constraints = []
+            result.exclude_phrases = []
+            result.exclude_topics = []
+            result.endpoint = None
+            result.endpoint_substrings = []
+            result.endpoint_strict = False
+            result.keywords = []
     elif any(c in q for c in ("most critical", "highest severity")) and not result.top_n:
         result.intent = "severity"
         if not result.severity:

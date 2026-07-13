@@ -50,6 +50,32 @@ _SOFT_STOP = frozenset(
         "scan",
         "user",
         "users",
+        # English fillers after "endpoints …" (e.g. "endpoints like 169.254…")
+        "like",
+        "such",
+        "from",
+        "with",
+        "via",
+        "using",
+        "about",
+        "into",
+        "over",
+        "under",
+        "only",
+        "first",
+        "next",
+        "also",
+        "metadata",  # "metadata endpoints" ≠ an API resource name
+        "detail",
+        "details",
+        "and",
+        "or",
+        "name",
+        "names",
+        "band",
+        "type",
+        "types",
+
         # vuln jargon — not path tokens
         "login",  # often "login rate limiting"; require "login endpoint/page" via other groups
         "password",
