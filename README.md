@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-SoR-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Chroma](https://img.shields.io/badge/Chroma-vectors-FF6F61?style=for-the-badge)](https://www.trychroma.com/)
-[![Tests](https://img.shields.io/badge/tests-144_passed-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
+[![Tests](https://img.shields.io/badge/tests-148_passed-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
 [![Live suite](https://img.shields.io/badge/live-43%2F43-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
 [![License](https://img.shields.io/badge/use-take--home-6e7781?style=for-the-badge)](#license--assignment)
 
@@ -493,7 +493,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 | Metric | Result |
 |:-------|:-------|
-| Offline suite | **144 passed** |
+| Offline suite | **148 passed** |
 | Live correctness | **43 / 43** |
 | README + Docker smoke | **OK** |
 | Latency p50 | **~0.4–0.6 s** |

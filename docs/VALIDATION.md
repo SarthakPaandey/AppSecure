@@ -28,7 +28,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-**Result:** `136 passed` (≈3s).
+**Result:** `148 passed` (≈3s).
 
 ### Documented local run (from README)
 
@@ -98,7 +98,7 @@ Dockerfile copies `app/`, `data/knowledge/`, `data/sample_findings.json`, and `d
 ## Offline results
 
 ```text
-Offline (clean venv / current suite): 144 passed
+Offline (clean venv / current suite): 148 passed
 ```
 
 Includes unit coverage for filters, citations, isolation, held-out IDs, planner policy, fail-soft LLM/embed paths, **specific subtype existence** (command injection ≠ SQLi), golden cases, and API smoke with fakes.
