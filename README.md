@@ -11,8 +11,7 @@ RAG-backed **FastAPI** service for natural-language Q&A over **application secur
 
 Think of this as the backend for *“talk to your scan results”* in a PTaaS dashboard: list, explain, remediate, compare, and **abstain** when the scan does not support the claim.
 
-> [!IMPORTANT]
-> **Thesis** — Structured findings decide what exists. Hybrid retrieval resolves soft language. The LLM explains only verified findings.
+**Design idea:** structured findings decide what exists; hybrid retrieval handles soft language; the LLM explains only verified findings.
 
 | Layer | Choice |
 |:------|:-------|
@@ -63,8 +62,7 @@ Think of this as the backend for *“talk to your scan results”* in a PTaaS da
 
 Scanner findings are **authoritative structured records**. Pure top‑k vector RAG over JSON fails on full inventory, existence checks, and stable citations.
 
-> [!TIP]
-> **Rule of thumb:** use **SQL** when the question is exact; use **hybrid IR + LLM** when the language is soft; **never** let the model invent inventory.
+I used **SQL** for exact questions and **hybrid IR + LLM** for soft language, so the model is not responsible for inventing inventory.
 
 | Approach | Failure mode on this problem |
 |:---------|:-----------------------------|
@@ -114,8 +112,7 @@ flowchart TB
   PIPE <--> LLM
 ```
 
-> [!NOTE]
-> **Dual store** — SQLite answers “what is in this scan?” completely. Chroma supports soft language and knowledge context. **Knowledge never proves presence** — only finding rows do.
+**Dual store:** SQLite answers “what is in this scan?” completely. Chroma supports soft language and knowledge context. Knowledge is only for explanation — presence of a vulnerability always comes from finding rows.
 
 More diagrams (ingest sequence, hybrid IR, ER model, fail-soft): **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
@@ -192,8 +189,7 @@ Dedicated **scope LLM** and **tool agent** are **off by default**.
 | Soft explain / remediate | **often &lt; 2 s**; template if LLM fails soft |
 | Live suite p50 / p95 | **~0.5 s / ~1.1 s** (one run — **not an SLA**) |
 
-> [!WARNING]
-> Latency is **provider-dependent** (embeddings + chat APIs). Numbers below are **one measured run**, not an SLA. Provider hang → timeout → **store-bound template**, not multi-minute stall.
+Latency depends on embedding and chat providers. The numbers above are from one measured run, not a guarantee. If the chat model times out, the service falls back to a store-bound template instead of hanging.
 
 ---
 
@@ -269,8 +265,7 @@ cp .env.example .env
 #   LLM_MODEL=gemma-4-31b
 ```
 
-> [!CAUTION]
-> Never commit `.env`. Rotate any key that was pasted into chat or tickets.
+Keep `.env` out of git (it is gitignored). Use `.env.example` as the template.
 
 ### 2. Install & run
 
@@ -487,8 +482,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 | Latency p50 | **~0.4–0.6 s** |
 | Latency p95 | **~1.0–1.1 s** |
 
-> [!NOTE]
-> Some soft answers use **`answer_source=template`** when the chat model times out or returns invalid JSON. That is intentional **fail-soft** with store-bound citations — not free invention.
+If the chat model times out or returns invalid JSON, soft answers may show `answer_source=template`. That path still fills text from retrieved store rows and keeps the same citation rules.
 
 Full commands, paraphrase notes, Docker log: **[`docs/VALIDATION.md`](docs/VALIDATION.md)**.
 
@@ -532,7 +526,7 @@ Evaluation emphasizes **held-out evidence**, not sample memorization:
 
 ## Design tradeoffs
 
-Engineering choices below are deliberate. Each row is **benefit vs cost** — not a claim of production completeness.
+Choices I made for this project, with the main upside and the cost of each.
 
 ### Storage and data
 
@@ -638,65 +632,58 @@ Engineering choices below are deliberate. Each row is **benefit vs cost** — no
 
 ## Production roadmap
 
-This take-home proves the **query and grounding design**. Moving to production is mostly **scale, isolation, ops, and multi-provider resilience** — not replacing SQLite-first inventory or the citation gate.
+If I continued this beyond the take-home, I would mainly invest in **scale, multi-tenant isolation, ops, and provider resilience**. The core query design (structured inventory + hybrid soft path + grounded generation) is what I would build on.
 
 ### Data and storage
 
-| Improvement | Why |
-|:------------|:----|
-| **Postgres (or managed SQL)** instead of local SQLite | Concurrent writers, multi-tenant scans, backups, connection pooling |
-| **Separate vector indexes** for findings vs knowledge (or managed vector DB) | Clearer isolation than one Chroma collection + metadata only |
-| **Idempotent / incremental ingest** | Patch single findings without full scan replace; support live scanner feeds |
-| **Scanner adapters** (Burp, ZAP, SARIF, vendor JSON) | Map heterogeneous exports into the stable finding schema |
+| Next step | Why I would do it |
+|:----------|:------------------|
+| **Postgres (or managed SQL)** | Concurrent writers, multi-tenant scans, backups, pooling |
+| **Separate vector indexes** for findings vs knowledge | Clearer isolation at scale than one local Chroma collection |
+| **Incremental ingest** | Live scanner feeds without rewriting the whole scan each time |
+| **Scanner adapters** (Burp, ZAP, SARIF, vendor JSON) | Map real tool exports into the same finding schema |
 
 ### Knowledge and retrieval
 
-| Improvement | Why |
-|:------------|:----|
-| **Heading-aware, token-bounded chunking** for large PDFs / policy docs | Better precision than whole-document embeddings on long sources |
-| **Stable chunk IDs + source/section metadata** | Cite section-level guidance without losing parent document identity |
-| **Scheduled OWASP / CWE / MITRE sync** | Less drift than a static offline bundle |
-| **Optional cross-encoder** only after offline eval | Measure gain vs latency before enabling by default |
-| **Cached / local embeddings** for hot tenants | Cut ModelScope latency and quota pressure |
+| Next step | Why I would do it |
+|:----------|:------------------|
+| **Section / token chunking** for large policy PDFs | Better retrieval than whole-document embeds on long sources |
+| **Chunk IDs + source/section metadata** | Cite a specific section of a long guide |
+| **Scheduled OWASP / CWE / MITRE updates** | Less drift than a static offline bundle |
+| **Measure before enabling a cross-encoder** | Only add latency if eval shows a real gain |
+| **Cached or local embeddings** for hot tenants | Lower provider latency and quota risk |
 
 ### LLM and reliability
 
-| Improvement | Why |
-|:------------|:----|
-| **Same-provider model fallbacks** (`LLM_FALLBACK_MODELS`, e.g. Gemma → `gpt-oss-120b`) | Soft answers survive a single model outage without jumping straight to templates |
-| **Multi-provider cascade** (Cerebras → ModelScope → Groq) with per-hop timeouts | Survive one vendor’s outage; keep template as last resort only |
-| **Stage-level latency metrics** (plan / retrieve / generate) | Debug p95 and fail-soft rates in production |
-| **Stronger planner eval suite** | Catch soft-route regressions before release |
+| Next step | Why I would do it |
+|:----------|:------------------|
+| **Same-provider fallbacks** (e.g. Gemma → another Cerebras model via `LLM_FALLBACK_MODELS`) | Soft answers keep working if one model is slow or down |
+| **Optional multi-provider cascade** with short per-hop timeouts | Survive one vendor outage; template only after all chat options fail |
+| **Stage-level latency metrics** (plan / retrieve / generate) | See where p95 actually goes |
+| **Larger planner eval set** | Catch soft-route regressions before shipping |
 
-### Product and security
+### Product surface
 
-| Improvement | Why |
-|:------------|:----|
-| **AuthN/AuthZ + tenant scoping** on every API | Required for multi-customer PTaaS |
-| **Audit log** of questions, plans, cited IDs, abstentions | Compliance and incident review |
-| **Rate limiting and abuse controls** | Protect paid LLM/embed spend |
-| **UI / PTaaS dashboard** | Engineers will not live in `/docs` curl forever |
-| **Broader multi-scan golden + CI live smoke** | Continuous proof of isolation and quality under real keys |
+| Next step | Why I would do it |
+|:----------|:------------------|
+| **Auth and tenant scoping** | Multi-customer PTaaS needs it |
+| **Audit log** of questions, plans, citations, abstentions | Debugging and compliance |
+| **Rate limiting** | Control LLM/embed cost |
+| **Dashboard UI** | Better than raw OpenAPI for day-to-day use |
+| **Broader multi-scan goldens in CI** | Continuous isolation and quality checks |
 
-### What to keep as-is
-
-Do **not** drop these when “productionizing”:
-
-- SQLite/SQL **system of record** for inventory (or its managed SQL equivalent)  
-- **No LLM counts** of findings  
-- **Citation gate** and **existence abstain**  
-- **Fail-closed** vector filters  
-- **Fail-soft** templates when all chat models fail  
+I would still keep inventory on structured storage (not free-form LLM counts), server-side citation checks, and scan-bound retrieval — those are the parts that made answers trustworthy in this project.
 
 ---
 
 ## Security notes
 
-> [!CAUTION]
-> Treat scanner **evidence** fields as **untrusted** in prompts. Never commit `.env` or paste live keys into tickets.
+A few implementation details relevant to AppSec:
 
-- Citation IDs are validated against retrieved/filtered findings for the **selected scan** only.  
-- Chroma filtered queries **fail closed** — a broken `where` returns no hits, never unfiltered results.
+- Scanner **evidence** is treated as untrusted text in prompts (shown and explained, not followed as instructions).  
+- `.env` is gitignored; only `.env.example` is in the repo.  
+- Citation IDs are checked against findings for the **selected scan**.  
+- Filtered Chroma queries fail closed (no unfiltered retry on filter errors).
 
 ---
 
@@ -704,5 +691,5 @@ Do **not** drop these when “productionizing”:
 
 | Document | Contents |
 |----------|----------|
-| **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** | Full architecture: context diagram, dual store, ingest/query sequences, hybrid IR, planner policy, citation gate, package map, failures, tradeoffs |
-| **[`docs/VALIDATION.md`](docs/VALIDATION.md)** | Clean venv, live suite, Docker smoke, paraphrase notes, limitations |
+| **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** | Architecture diagrams, sequences, package map, tradeoffs |
+| **[`docs/VALIDATION.md`](docs/VALIDATION.md)** | How the project was tested (offline, live, Docker) |
