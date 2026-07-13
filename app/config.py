@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     use_tool_agent: bool = False
     tool_agent_max_rounds: int = 3
 
-    # V2 semantic planner + dynamic synthesis
+    # Semantic planner + dynamic synthesis
     use_semantic_planner: bool = True
     planner_model: str = ""  # empty = llm_model
     use_dynamic_synthesis: bool = True
