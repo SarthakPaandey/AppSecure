@@ -39,19 +39,19 @@ Think of this as the backend for *“talk to your scan results”* in a PTaaS da
 <summary><strong>Table of contents</strong></summary>
 
 1. [Why this architecture](#why-this-architecture)
-2. [Design tradeoffs](#design-tradeoffs)
-3. [System overview](#system-overview)
-4. [Query pipeline](#query-pipeline)
-5. [Anti-hallucination](#anti-hallucination)
-6. [Knowledge base](#knowledge-base)
-7. [Quick start](#quick-start)
-8. [Docker](#docker)
-9. [API reference](#api-reference)
-10. [Configuration](#configuration)
-11. [Project layout](#project-layout)
-12. [Tests and measured evidence](#tests-and-measured-evidence)
-13. [Sample questions](#sample-questions)
-14. [Evaluation approach](#evaluation-approach)
+2. [System overview](#system-overview)
+3. [Query pipeline](#query-pipeline)
+4. [Anti-hallucination](#anti-hallucination)
+5. [Knowledge base](#knowledge-base)
+6. [Quick start](#quick-start)
+7. [Docker](#docker)
+8. [API reference](#api-reference)
+9. [Configuration](#configuration)
+10. [Project layout](#project-layout)
+11. [Tests and measured evidence](#tests-and-measured-evidence)
+12. [Sample questions](#sample-questions)
+13. [Evaluation approach](#evaluation-approach)
+14. [Design tradeoffs](#design-tradeoffs)
 15. [Known limitations](#known-limitations)
 16. [Security notes](#security-notes)
 
@@ -78,100 +78,11 @@ Full diagrams, sequences, and module map: **[`docs/ARCHITECTURE.md`](docs/ARCHIT
 
 ---
 
-## Design tradeoffs
-
-Engineering choices below are deliberate. Each row is **benefit vs cost** — not a claim of production completeness.
-
-### Storage and data
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **SQLite as system of record** | Exact filters, complete inventory, zero infra — not multi-writer / multi-tenant production scale. |
-| **Chroma (local, persistent)** | Zero-ops vector store for demos — not a managed multi-tenant vector service. |
-| **Single Chroma collection** (findings + knowledge) | Simpler ingest and one embed path — isolation relies on metadata filters (`scan_id`, `doc_type`) that **fail closed**, not separate physical indexes. |
-| **Replace-scan on ingest** | Clean re-demo and idempotent reloads — no concurrent partial updates of a live scan. |
-| **Assignment-shaped JSON schema** | Any **N** findings of that shape work — arbitrary scanner exports need an external mapper. |
-
-### Knowledge indexing
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **Whole-document knowledge vectors** | Bundled CWE / OWASP / playbook files are already topic-sized, so one vector per file keeps citation IDs stable and simple. |
-| **No heading / token chunking by default** | Avoids chunk-ID machinery on a compact curated corpus — large uploaded PDFs would need section-aware, token-bounded chunks in production. |
-| **Offline curated knowledge** | Deterministic demos and citations — not live MITRE/OWASP sync. |
-| **Playbook topic tags** | Improves hybrid ranking with domain keywords — hand-curated, not learned. |
-| **Knowledge never proves presence** | Guides explain verified findings only — they cannot invent a finding that is not in SQLite. |
-
-### Query path and LLM use
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **Filter-first hybrid** | SQL for exact inventory; hybrid IR + LLM for soft language — soft NL is never as deterministic as SQL. |
-| **No LLM for counts / full lists** | Reproducible, auditable inventory — model never “remembers” the wrong CRITICAL set. |
-| **Planner only when rules are not confident** | Saves latency and stops the model rewriting explicit HIGH / path filters — soft paraphrases still need a plan. |
-| **Generator for narrative only** | Explain / remediate / compare / risk get grounded prose even when routing is clear — inventory stays template/SQL (0 chat LLM). |
-| **No dedicated scope LLM (default off)** | Fewer calls and disagreement points — product boundary uses rules + planner `in_scope` + grounded abstention. |
-| **Planner fail-open** | Malformed JSON, timeouts, or low-confidence “out of scope” continue to retrieval rather than false-refuse real AppSec questions. |
-| **High-confidence `in_scope=false` only refuses** | Soft security phrasing is not rejected for missing keywords — obvious junk (weather, jokes) is still rule-refused. |
-| **Tool agent off by default** | Fixed operations map to a deterministic pipeline that is easier to test — multi-round tools add latency without improving the required path. |
-| **LLM timeout → row-bound templates** | Bounded latency under provider hang — answers stay store-grounded but less fluent. |
-| **At most one JSON repair retry** | Caps cost and open-ended loops — may still fall back to a structured template. |
-| **`reasoning_effort=none`** | Avoids burning tokens on chain-of-thought — some models may answer slightly thinner. |
-
-### Routing and structure
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **Rules for universal syntax** | Severity, CWE, OWASP, paths, count, top-N extracted deterministically — not a full natural-language understanding stack. |
-| **Endpoint resolution via scan catalog** | Soft cues map to **ingested** paths (substring / segment) — no Levenshtein-first fuzzy matching that invents wrong routes. |
-| **Finding IDs from catalog after load** | Supports arbitrary IDs (`SHIP-AUTH-01`, `web:xss:44`, …) — not limited to `FINDING-\d+` regex alone. |
-| **AppSec taxonomy + synonyms** | Domain bridges (IDOR, SSRF, JWT, ATO, …) improve soft class routing — finite coverage, not open-domain NLU. |
-| **Explicit user filters beat planner** | User-stated HIGH / endpoint / IDs win over model inference. |
-| **RouteResult + QueryPlan + FilterSpec** | Incremental stability (syntax → semantic plan → SQL executor) — avoids a risky mid-project schema rewrite. |
-| **Central query orchestrator** | One readable pipeline for a take-home — still modular helpers, not a microservices split. |
-
-### Retrieval and ranking
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **BM25 ∪ dense → RRF** | Exact tokens (CWE, paths, parameters) plus paraphrases without fragile score calibration. |
-| **Cross-encoder off by default** (`RERANK_MODE=light`) | Fewer models, downloads, and latency — optional CE remains for power users who need it. |
-| **Fixed top-k / RRF *k*** | Predictable cost and latency — not adaptive per query. |
-| **Hard filters before soft rank when available** | “HIGH on accounts” stays precise — candidates outside the SQL filter never enter context. |
-| **Chroma `where` fail-closed** | Broken isolation filters return **no** dense hits — never retry unfiltered and leak another `scan_id`. |
-| **BM25 in-process, rebuild on ingest** | Simple multi-scan lexical index — not a distributed search cluster. |
-| **Remote embeddings (ModelScope)** | Strong quality without hosting a GPU — ingest/query depend on network and quotas. |
-
-### Generation, citations, safety
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **Server citation gate** | Every `findings_referenced` ID must be in the allowed set for this scan — model text cannot invent IDs. |
-| **Strip unknown IDs from answer text** | Safer output — may remove a soft mention the model failed to list in the JSON array. |
-| **Existence: theoretical risk ≠ reported vuln** | RCE is not inferred from upload/SSRF alone — may under-answer “related risk” unless asked carefully. |
-| **Structured templates for inventory** | Generic layouts filled from DB rows — not sample-specific canned essays. |
-| **Evidence treated as untrusted** | Blocks prompt-injection via scanner payloads — evidence is explained, never obeyed as instructions. |
-
-### Product and evaluation
-
-| Decision | Tradeoff (one line) |
-|:---------|:--------------------|
-| **Scan Q&A product boundary** | Clear PTaaS scope — not a general security chatbot or GRC assistant. |
-| **Obvious off-topic rules (weather, jokes)** | Free refusal without an extra model call — not a complete open-domain classifier. |
-| **`scan_id` isolation** | Correct multi-scan boundaries — wrong/missing id falls back to latest scan. |
-| **No multi-tenant auth / audit** | Take-home boundary — not shippable multi-tenant SaaS. |
-| **Held-out scan in tests** | Proves non–WealthPilot IDs/endpoints and isolation — still not full industry coverage. |
-| **Unit tests with FakeLLM** | Fast offline CI — not a live quality certificate (use `live_validate` for that). |
-| **API-only (no frontend)** | Focus on backend correctness — reviewers exercise OpenAPI / curl. |
-
----
-
 ## System overview
 
 <p align="center">
   <img src="docs/assets/architecture-overview.svg" alt="AppSecure architecture overview: Client → FastAPI → Route/Plan → exact FilterEngine or soft Hybrid → Generator → Citation Gate → JSON; SQLite exact inventory; Chroma soft+knowledge; ModelScope embeddings; Cerebras chat" width="900" />
 </p>
-
 
 ```mermaid
 %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#e8f4f8', 'primaryTextColor':'#0f172a', 'primaryBorderColor':'#0d9488', 'lineColor':'#334155', 'secondaryColor':'#f0fdf4', 'tertiaryColor':'#fff7ed'}}}%%
@@ -536,7 +447,6 @@ scripts/             # demo_queries, hard_queries, live_validate
 docs/
   ARCHITECTURE.md    # full design (this is the deep dive)
   VALIDATION.md      # measured offline/live/Docker evidence
-study-guide/         # interactive HTML study guide (open via http.server)
 Dockerfile
 docker-compose.yml
 requirements.txt
@@ -620,6 +530,94 @@ Evaluation emphasizes **held-out evidence**, not sample memorization:
 
 ---
 
+## Design tradeoffs
+
+Engineering choices below are deliberate. Each row is **benefit vs cost** — not a claim of production completeness.
+
+### Storage and data
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **SQLite as system of record** | Exact filters, complete inventory, zero infra — not multi-writer / multi-tenant production scale. |
+| **Chroma (local, persistent)** | Zero-ops vector store for demos — not a managed multi-tenant vector service. |
+| **Single Chroma collection** (findings + knowledge) | Simpler ingest and one embed path — isolation relies on metadata filters (`scan_id`, `doc_type`) that **fail closed**, not separate physical indexes. |
+| **Replace-scan on ingest** | Clean re-demo and idempotent reloads — no concurrent partial updates of a live scan. |
+| **Assignment-shaped JSON schema** | Any **N** findings of that shape work — arbitrary scanner exports need an external mapper. |
+
+### Knowledge indexing
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **Whole-document knowledge vectors** | Bundled CWE / OWASP / playbook files are already topic-sized, so one vector per file keeps citation IDs stable and simple. |
+| **No heading / token chunking by default** | Avoids chunk-ID machinery on a compact curated corpus — large uploaded PDFs would need section-aware, token-bounded chunks in production. |
+| **Offline curated knowledge** | Deterministic demos and citations — not live MITRE/OWASP sync. |
+| **Playbook topic tags** | Improves hybrid ranking with domain keywords — hand-curated, not learned. |
+| **Knowledge never proves presence** | Guides explain verified findings only — they cannot invent a finding that is not in SQLite. |
+
+### Query path and LLM use
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **Filter-first hybrid** | SQL for exact inventory; hybrid IR + LLM for soft language — soft NL is never as deterministic as SQL. |
+| **No LLM for counts / full lists** | Reproducible, auditable inventory — model never “remembers” the wrong CRITICAL set. |
+| **Planner only when rules are not confident** | Saves latency and stops the model rewriting explicit HIGH / path filters — soft paraphrases still need a plan. |
+| **Generator for narrative only** | Explain / remediate / compare / risk get grounded prose even when routing is clear — inventory stays template/SQL (0 chat LLM). |
+| **No dedicated scope LLM (default off)** | Fewer calls and disagreement points — product boundary uses rules + planner `in_scope` + grounded abstention. |
+| **Planner fail-open** | Malformed JSON, timeouts, or low-confidence “out of scope” continue to retrieval rather than false-refuse real AppSec questions. |
+| **High-confidence `in_scope=false` only refuses** | Soft security phrasing is not rejected for missing keywords — obvious junk (weather, jokes) is still rule-refused. |
+| **Tool agent off by default** | Fixed operations map to a deterministic pipeline that is easier to test — multi-round tools add latency without improving the required path. |
+| **LLM timeout → row-bound templates** | Bounded latency under provider hang — answers stay store-grounded but less fluent. |
+| **At most one JSON repair retry** | Caps cost and open-ended loops — may still fall back to a structured template. |
+| **`reasoning_effort=none`** | Avoids burning tokens on chain-of-thought — some models may answer slightly thinner. |
+
+### Routing and structure
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **Rules for universal syntax** | Severity, CWE, OWASP, paths, count, top-N extracted deterministically — not a full natural-language understanding stack. |
+| **Endpoint resolution via scan catalog** | Soft cues map to **ingested** paths (substring / segment) — no Levenshtein-first fuzzy matching that invents wrong routes. |
+| **Finding IDs from catalog after load** | Supports arbitrary IDs (`SHIP-AUTH-01`, `web:xss:44`, …) — not limited to `FINDING-\d+` regex alone. |
+| **AppSec taxonomy + synonyms** | Domain bridges (IDOR, SSRF, JWT, ATO, …) improve soft class routing — finite coverage, not open-domain NLU. |
+| **Explicit user filters beat planner** | User-stated HIGH / endpoint / IDs win over model inference. |
+| **RouteResult + QueryPlan + FilterSpec** | Incremental stability (syntax → semantic plan → SQL executor) — avoids a risky mid-project schema rewrite. |
+| **Central query orchestrator** | One readable pipeline for a take-home — still modular helpers, not a microservices split. |
+
+### Retrieval and ranking
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **BM25 ∪ dense → RRF** | Exact tokens (CWE, paths, parameters) plus paraphrases without fragile score calibration. |
+| **Cross-encoder off by default** (`RERANK_MODE=light`) | Fewer models, downloads, and latency — optional CE remains for power users who need it. |
+| **Fixed top-k / RRF *k*** | Predictable cost and latency — not adaptive per query. |
+| **Hard filters before soft rank when available** | “HIGH on accounts” stays precise — candidates outside the SQL filter never enter context. |
+| **Chroma `where` fail-closed** | Broken isolation filters return **no** dense hits — never retry unfiltered and leak another `scan_id`. |
+| **BM25 in-process, rebuild on ingest** | Simple multi-scan lexical index — not a distributed search cluster. |
+| **Remote embeddings (ModelScope)** | Strong quality without hosting a GPU — ingest/query depend on network and quotas. |
+
+### Generation, citations, safety
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **Server citation gate** | Every `findings_referenced` ID must be in the allowed set for this scan — model text cannot invent IDs. |
+| **Strip unknown IDs from answer text** | Safer output — may remove a soft mention the model failed to list in the JSON array. |
+| **Existence: theoretical risk ≠ reported vuln** | RCE is not inferred from upload/SSRF alone — may under-answer “related risk” unless asked carefully. |
+| **Structured templates for inventory** | Generic layouts filled from DB rows — not sample-specific canned essays. |
+| **Evidence treated as untrusted** | Blocks prompt-injection via scanner payloads — evidence is explained, never obeyed as instructions. |
+
+### Product and evaluation
+
+| Decision | Tradeoff (one line) |
+|:---------|:--------------------|
+| **Scan Q&A product boundary** | Clear PTaaS scope — not a general security chatbot or GRC assistant. |
+| **Obvious off-topic rules (weather, jokes)** | Free refusal without an extra model call — not a complete open-domain classifier. |
+| **`scan_id` isolation** | Correct multi-scan boundaries — wrong/missing id falls back to latest scan. |
+| **No multi-tenant auth / audit** | Take-home boundary — not shippable multi-tenant SaaS. |
+| **Held-out scan in tests** | Proves non–WealthPilot IDs/endpoints and isolation — still not full industry coverage. |
+| **Unit tests with FakeLLM** | Fast offline CI — not a live quality certificate (use `live_validate` for that). |
+| **API-only (no frontend)** | Focus on backend correctness — reviewers exercise OpenAPI / curl. |
+
+---
+
 ## Known limitations
 
 | Area | Limitation |
@@ -654,7 +652,6 @@ Evaluation emphasizes **held-out evidence**, not sample memorization:
 
 | Document | Contents |
 |----------|----------|
-| **[`study-guide/`](study-guide/)** | **Interactive study guide** (diagrams, quizzes, command cookbook) — `cd study-guide && python -m http.server 5500` |
 | **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** | Full architecture: context diagram, dual store, ingest/query sequences, hybrid IR, planner policy, citation gate, package map, failures, tradeoffs |
 | **[`docs/VALIDATION.md`](docs/VALIDATION.md)** | Clean venv, live suite, Docker smoke, paraphrase notes, limitations |
 
