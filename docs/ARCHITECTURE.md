@@ -412,7 +412,7 @@ flowchart TB
 | BM25 | Paths, acronyms, exact tokens |
 | Dense | Paraphrases (“other users’ accounts”) |
 | RRF | Simple fusion without learned weights |
-| Fail-closed `where` | Never drop `scan_id` on error |
+| Fail-closed `where` | On filter error, return no hits (do not retry unfiltered) |
 
 ---
 
@@ -442,7 +442,7 @@ flowchart TD
   MER --> NEXT
 ```
 
-Planner must not invent finding IDs absent from the catalog / question.
+Planner is constrained not to invent finding IDs absent from the catalog / question.
 
 ### 9.3 Scope order
 
@@ -597,21 +597,23 @@ flowchart TB
 | Provider timeouts | Bounded latency | More `template` under load |
 | Catalog endpoint match | No inventing paths | Needs token overlap with scan |
 
-**Limitations:** soft paraphrases can miss; taxonomy is curated; orchestrator still centralized; latency is provider-dependent; no multi-tenant auth; knowledge is whole-doc for a compact corpus.
+**Limitations I accepted for the take-home:** soft paraphrases can miss; taxonomy is curated; the orchestrator is still centralized; latency depends on providers; no multi-tenant auth; knowledge is whole-document for a compact corpus.
 
-**Authoritative expanded table:** [README — Design tradeoffs](../README.md#design-tradeoffs).
+Fuller tradeoff table (same project choices): [README — Design tradeoffs](../README.md#design-tradeoffs).
 
-**Next (product):** knowledge chunking for large refs, multi-scan eval + CI budgets, stage metrics, tenant isolation, cached/local embeds.
+**If I continued toward production**, I would prioritize knowledge chunking for large refs, multi-scan eval + CI budgets, stage metrics, tenant isolation, and cached/local embeds — without giving up SQL-backed inventory or server-side citation checks. See [README — Production roadmap](../README.md#production-roadmap).
 
 ---
 
 ## 17. Security notes
 
-- Treat `evidence` as untrusted.  
-- Never commit `.env` or keys.  
-- Citations validated against selected scan only.  
-- Vector filters fail closed on error.
+Implementation details for this project:
+
+- Scanner `evidence` is treated as untrusted text in prompts (explained, not executed as instructions).  
+- `.env` is gitignored; only `.env.example` is in the repo.  
+- Citations are checked against findings for the selected scan.  
+- Vector queries with filters fail closed on error (no unfiltered retry).
 
 ---
 
-*Architecture document is authoritative for system design. Runbooks and measured numbers: README + VALIDATION.md.*
+*Architecture notes for this codebase. How it was tested: README + VALIDATION.md.*

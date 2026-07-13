@@ -15,7 +15,7 @@ Concise evidence for reviewers. **Not an SLA.** Latency is provider-dependent.
 | Defaults | `USE_LLM_SCOPE_GATE=false`, `USE_TOOL_AGENT=false`, `RERANK_MODE=light`, `CROSS_ENCODER_ENABLED=false` |
 | Fail-soft | `LLM_TIMEOUT_S=20`, `LLM_MAX_RETRIES=0`, `EMBED_TIMEOUT_S=10`, `EMBED_MAX_RETRIES=0` |
 
-Keys live only in local `.env` (never committed). See `.env.example`.
+API keys stay in local `.env` (gitignored). See `.env.example`.
 
 ## Commands used
 
@@ -182,13 +182,15 @@ Regression (offline): `tests/test_existence_subtype.py` — command injection ab
 
 ---
 
-## Known limitations (honest)
+## Known limitations
 
-1. **Soft NL / taxonomy heuristics** — curated topics and phrases; unusual paraphrases can miss or over-retrieve.  
-2. **Orchestrator** — modularized, still centralized vs ideal micro-pipeline.  
-3. **Provider variance** — embed/LLM latency and fail-soft template rate vary by network and quotas.  
-4. **Docker** — documented; daemon must be running locally to verify compose.  
-5. **Not production multi-tenant** — no auth, audit, or row-level tenancy product.
+What I still see as incomplete in this take-home:
+
+1. **Soft NL / taxonomy** — curated topics and phrases; unusual paraphrases can miss or over-retrieve.  
+2. **Orchestrator** — modularized, but still more centralized than an ideal micro-pipeline.  
+3. **Provider variance** — embed/LLM latency and template fallback rate depend on network and quotas.  
+4. **Docker** — documented; needs a local daemon to verify compose.  
+5. **Multi-tenant product** — no auth, audit, or row-level tenancy yet.
 
 ---
 
@@ -196,27 +198,27 @@ Regression (offline): `tests/test_existence_subtype.py` — command injection ab
 
 ### Why SQLite and Chroma?
 
-SQLite guarantees complete and exact inventory operations. Chroma handles semantic retrieval. They solve different problems.
+I used SQLite for complete, exact inventory operations and Chroma for semantic retrieval. They solve different problems.
 
 ### Why BM25 and dense retrieval?
 
-Security questions mix exact paths, CWE IDs, and acronyms with semantic paraphrases. BM25 handles exact terms; dense retrieval handles meaning; RRF combines them simply.
+Security questions mix exact paths, CWE IDs, and acronyms with semantic paraphrases. BM25 covers exact terms; dense retrieval covers meaning; RRF combines them without heavy score calibration.
 
 ### Why rules and an LLM planner?
 
-Rules handle explicit high-confidence operators. The planner handles ambiguous natural language. Planner output is validated against the scan catalog before execution; explicit rules win on conflicts.
+Rules handle explicit high-confidence operators. The planner is for ambiguous natural language. Planner output is validated against the scan catalog; explicit rules win on conflicts.
 
-### How do you prevent hallucinations?
+### How does the system limit hallucinations?
 
-The scan store determines what exists; unsupported existence queries abstain; every finding citation is validated against retrieved rows for the selected `scan_id`. Vector filters fail closed. LLM/embed failures degrade to store-bound templates, not invented rows.
+The scan store decides what exists; unsupported existence queries abstain; citations are checked against retrieved rows for the selected `scan_id`. Vector filters fail closed. If chat/embed providers fail, the service falls back to store-bound templates rather than inventing rows.
 
-### What is hacky?
+### What I would improve next
 
-The taxonomy and intent rules are curated; the orchestrator remains more centralized than ideal; provider performance varies. Soft paraphrases (e.g. “horizontal privilege escalation”, pure “command injection”) are imperfect. A production version would add broader evaluation, tenant controls, observability, and versioned ingestion.
+The taxonomy and intent rules are curated; the orchestrator is still thicker than ideal; soft paraphrases are imperfect. For a longer-lived product I would add broader evaluation, tenant controls, observability, multi-model fallbacks, and versioned ingestion — described in the README production roadmap.
 
 ---
 
-## Submission hygiene (checked)
+## Repo hygiene (what I verified)
 
 | Check | Result |
 |-------|--------|
@@ -224,7 +226,7 @@ The taxonomy and intent rules are curated; the orchestrator remains more central
 | `data/chroma/`, `*.db` ignored | Yes |
 | `server.log` ignored | Yes |
 | `.venv` / `.venv-clean` ignored | Yes |
-| `git ls-files` secrets scan | No API keys / private env tracked |
+| Tracked files secrets scan | No API keys / private env in git |
 | `data/query_validation_report.json` | Fictional finding IDs only; no live keys |
 
-Generated clean venv `.venv-clean/` is local-only (gitignored); remove with `rm -rf .venv-clean` after review if desired.
+A clean venv used for offline tests (`.venv-clean/`) stays local only.
