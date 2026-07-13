@@ -69,31 +69,6 @@ FINDING ID CATALOG from this scan (use only these IDs; never invent):
 Output the JSON plan only. Do not answer the question."""
 
 
-ROUTER_SYSTEM = """You are a query router for an application security findings assistant.
-Classify the user question and extract structured filters.
-
-Return a single JSON object with keys:
-- intent: one of [list, explain, remediation, severity, summary, cross_ref, existence, compare, cluster, general]
-- severity: CRITICAL|HIGH|MEDIUM|LOW or null
-- cwe_id: e.g. "CWE-89" or null
-- owasp: e.g. "A01" or short category keyword or null
-- endpoint: endpoint path substring if mentioned, else null
-- finding_id: e.g. "FINDING-001" or null
-- keywords: array of short search keywords (vuln names like "SQL injection", "IDOR", "SSRF", "JWT", "authentication", etc.)
-
-Intent guidance:
-- list: list/filter findings
-- explain: explain a specific finding/vuln
-- remediation: how to fix
-- severity / summary: overall prioritization
-- cross_ref: map to OWASP/CWE categories
-- existence: is there X vulnerability?
-- compare: compare two findings
-- cluster: group findings by shared root cause / control family
-- general: other
-
-Only output JSON."""
-
 ANSWER_SYSTEM = """You are an application security engineer on a PTaaS (Penetration Testing as a Service) platform.
 You answer questions ONLY using the provided FINDINGS and KNOWLEDGE context for a single scan.
 

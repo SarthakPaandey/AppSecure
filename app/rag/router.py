@@ -6,34 +6,16 @@ retrieval constraints, not answer packs.
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.clients.llm import LLMClient, parse_json_response
-from app.rag.prompts import ROUTER_SYSTEM
 from app.retrieval.taxonomy import (
     TOPICS,
     expand_abbrev,
     is_negated,
     topic_names_for_text,
 )
-
-logger = logging.getLogger(__name__)
-
-VALID_INTENTS = {
-    "list",
-    "explain",
-    "remediation",
-    "severity",
-    "summary",
-    "cross_ref",
-    "existence",
-    "compare",
-    "cluster",
-    "general",
-}
 
 _NUM_WORDS = {
     "one": 1,
@@ -646,93 +628,5 @@ def rule_based_route(question: str) -> RouteResult:
 
     return result
 
-
-def _rules_confident(route: RouteResult, question: str) -> bool:
-    if (
-        route.finding_id
-        or route.finding_ids
-        or route.cwe_id
-        or route.owasp
-        or route.severity
-        or route.severities
-        or route.exclude_severities
-        or route.class_constraints
-    ):
-        return True
-    if route.intent in {
-        "existence",
-        "summary",
-        "severity",
-        "compare",
-        "cross_ref",
-        "list",
-        "remediation",
-        "cluster",
-    }:
-        return True
-    if route.intent in {"explain", "remediation"} and route.keywords:
-        return True
-    return True
-
-
-class QueryRouter:
-    def __init__(self, llm: LLMClient, use_llm: bool = True) -> None:
-        self.llm = llm
-        self.use_llm = use_llm
-
-    def route(self, question: str) -> RouteResult:
-        fallback = rule_based_route(question)
-        if not self.use_llm or _rules_confident(fallback, question):
-            return fallback
-
-        try:
-            raw_text = self.llm.complete(
-                system=ROUTER_SYSTEM,
-                user=f"Question: {question}\n\nReturn JSON only.",
-                temperature=0.0,
-                response_json=True,
-                max_tokens=400,
-            )
-            data = parse_json_response(raw_text)
-            intent = str(data.get("intent") or fallback.intent).lower()
-            if intent not in VALID_INTENTS:
-                intent = fallback.intent
-
-            def pick(key: str, default: Any = None) -> Any:
-                val = data.get(key)
-                if val in (None, "", [], {}):
-                    return default
-                return val
-
-            keywords = pick("keywords", fallback.keywords) or []
-            if isinstance(keywords, str):
-                keywords = [keywords]
-            merged = list(dict.fromkeys([*keywords, *fallback.keywords]))
-
-            sev = pick("severity", fallback.severity)
-            severities = list(fallback.severities)
-            if sev and str(sev).upper() not in severities:
-                severities = [str(sev).upper(), *severities]
-
-            fid = pick("finding_id", fallback.finding_id)
-            fids = list(fallback.finding_ids)
-            if fid and str(fid).upper() not in fids:
-                fids = [str(fid).upper(), *fids]
-
-            return RouteResult(
-                intent=intent,
-                severity=(str(sev).upper() if sev else None) or fallback.severity,
-                severities=severities,
-                exclude_severities=list(fallback.exclude_severities),
-                cwe_id=(pick("cwe_id", fallback.cwe_id) or None),
-                owasp=(pick("owasp", fallback.owasp) or None),
-                endpoint=(pick("endpoint", fallback.endpoint) or None),
-                finding_id=(str(fid).upper() if fid else None) or fallback.finding_id,
-                finding_ids=fids,
-                keywords=[str(k) for k in merged],
-                raw=data,
-                source="llm",
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM router failed (%s); using rules", exc)
-            return fallback
+# LLM soft-NLU is SemanticPlanner (planner.py), not a second router.
+# rule_based_route() is the only router entrypoint used by QueryService.

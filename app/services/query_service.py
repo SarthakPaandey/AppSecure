@@ -32,7 +32,7 @@ from app.rag.planner import (
     resolve_endpoints_against_catalog,
     validate_plan_against_catalog,
 )
-from app.rag.router import QueryRouter, RouteResult, rule_based_route
+from app.rag.router import RouteResult, rule_based_route
 from app.rag.scope import decide_scope, scope_refusal_response
 from app.retrieval.bm25_index import FindingsBM25Index
 from app.retrieval.endpoint_utils import resolve_soft_endpoints, unknown_paths_in_question
@@ -70,7 +70,6 @@ class QueryService:
         self.llm = llm
         self.settings = settings
         self.findings_store = FindingsStore(session)
-        self.router = QueryRouter(llm)
         self.generator = AnswerGenerator(llm)
         self.planner = SemanticPlanner(
             llm,
