@@ -222,6 +222,35 @@ def rule_based_route(question: str) -> RouteResult:
         result.include_phrases.extend(["secret", "hardcoded", "api key"])
         result.class_constraints.extend(["secret", "hardcoded", "api key"])
 
+    # Secrets / hardcoded credentials: do NOT expand to full authentication
+    # family (JWT, rate limit, password policy) — that over-matches.
+    secrets_focus = bool(
+        re.search(
+            r"\b(secrets?(?:\s+management)?|hardcoded|api\s*keys?|"
+            r"private\s+key|client[- ]side\s+(?:secret|key|credential)|"
+            r"hardcoded\s+credentials?)\b",
+            q,
+        )
+    ) or ("secrets" in included_topics and "hardcoded" in q)
+    if secrets_focus or (
+        "secrets" in included_topics
+        and re.search(r"\b(secret|credential|hardcoded|api\s*key)\b", q)
+    ):
+        # Phrase-only filter (empty topics so FilterEngine does not OR-expand
+        # authentication-adjacent keywords like bare "credential").
+        result.topics = []
+        secret_phrases = [
+            "hardcoded",
+            "api key",
+            "apikey",
+            "private key",
+            "secrets management",
+            "secret management",
+            "CWE-798",
+        ]
+        result.include_phrases = list(dict.fromkeys(secret_phrases))
+        result.class_constraints = list(dict.fromkeys(secret_phrases))
+
     # --- Negation: explicit phrases ---
     for m in re.finditer(
         r"\b(?:not|non)[\s-]+([a-z][a-z0-9\s/-]{2,40}?)(?:\s+related|\s+issues?|\s+findings?|\s+problems?|$|,|\.)",
@@ -309,8 +338,20 @@ def rule_based_route(question: str) -> RouteResult:
     )
     if top_n_cue:
         n = _extract_number(q)
-        # "single", "most severe" -> 1
-        if re.search(r"\bsingle\b|\bmost\s+severe\b|\bmost\s+critical\b", q):
+        # "single most severe" / bare "most severe finding" → 1, but never
+        # override an explicit Top-N ("top 2 most severe findings").
+        explicit_n = bool(
+            re.search(
+                r"\btop\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|"
+                r"\b(?:first|highest)\s+(?:\d+|one|two|three|four|five)\b|"
+                r"\b(?:\d+|two|three|four|five)\s+(?:highest|most|top|severe)\b|"
+                r"\bwhich\s+(?:three|two|four|five|\d+)\s+findings\b",
+                q,
+            )
+        )
+        if not explicit_n and re.search(
+            r"\bsingle\b|\bmost\s+severe\b|\bmost\s+critical\b", q
+        ):
             n = 1
         result.top_n = n or 3
         if not result.want_count:

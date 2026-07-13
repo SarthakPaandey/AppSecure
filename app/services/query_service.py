@@ -376,8 +376,14 @@ class QueryService:
             or bool(spec.exclude_topics)
             or bool(spec.exclude_severities)
             or bool(getattr(spec, "path_param_only", False))
-            or (bool(spec.include_phrases) and route.intent in {"list", "general"})
-            or (bool(spec.include_topics) and route.intent in {"list", "general"})
+            or (
+                bool(spec.include_phrases)
+                and route.intent in {"list", "general", "existence"}
+            )
+            or (
+                bool(spec.include_topics)
+                and route.intent in {"list", "general", "existence"}
+            )
             or (bool(spec.endpoint_substrings) and route.endpoint_strict)
             or (
                 bool(spec.include_severities)
@@ -391,6 +397,8 @@ class QueryService:
             or spec.cwe_ids
             or spec.endpoint_substrings
             or spec.finding_ids
+            or spec.include_phrases
+            or spec.include_topics
         ):
             precision = True
         if (
