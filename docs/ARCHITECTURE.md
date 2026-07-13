@@ -586,14 +586,22 @@ flowchart TB
 | Decision | Benefit | Cost |
 |----------|---------|------|
 | SQLite first | Exact inventory | Soft NL needs hybrid |
+| Single Chroma collection | Simple ingest | Isolation via metadata + fail-closed only |
+| Whole-doc knowledge vectors | Stable IDs on topic-sized files | Large uploads need chunking |
 | Curated taxonomy | Predictable AppSec classes | Incomplete open-domain NL |
 | Rules + optional planner | Low LLM cost on hard ops | Soft mis-routes possible |
+| Planner fail-open | Avoid false refuse | Occasional weak soft path |
+| No CE by default | Less latency / deps | Slightly lower soft precision |
+| No dedicated scope LLM | Fewer calls | Soft boundary = rules + plan + abstain |
 | Strict citations | No free-form ID invent | Tighter answers |
 | Provider timeouts | Bounded latency | More `template` under load |
+| Catalog endpoint match | No inventing paths | Needs token overlap with scan |
 
-**Limitations:** soft paraphrases can miss; taxonomy is curated; orchestrator still centralized; latency is provider-dependent; no multi-tenant auth.
+**Limitations:** soft paraphrases can miss; taxonomy is curated; orchestrator still centralized; latency is provider-dependent; no multi-tenant auth; knowledge is whole-doc for a compact corpus.
 
-**Next (product):** multi-scan eval + CI budgets, stage metrics, tenant isolation, cached/local embeds.
+**Authoritative expanded table:** [README — Design tradeoffs](../README.md#design-tradeoffs).
+
+**Next (product):** knowledge chunking for large refs, multi-scan eval + CI budgets, stage metrics, tenant isolation, cached/local embeds.
 
 ---
 
