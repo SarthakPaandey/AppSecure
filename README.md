@@ -6,7 +6,6 @@
 [![Chroma](https://img.shields.io/badge/Chroma-vectors-FF6F61?style=for-the-badge)](https://www.trychroma.com/)
 [![Tests](https://img.shields.io/badge/tests-148_passed-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
 [![Live suite](https://img.shields.io/badge/live-43%2F43-2ea44f?style=for-the-badge)](docs/VALIDATION.md)
-[![License](https://img.shields.io/badge/use-take--home-6e7781?style=for-the-badge)](#license--assignment)
 
 RAG-backed **FastAPI** service for natural-language Q&A over **application security scan results** — with **citations**, **hybrid retrieval**, and **hard anti-hallucination controls**.
 
@@ -53,7 +52,8 @@ Think of this as the backend for *“talk to your scan results”* in a PTaaS da
 13. [Evaluation approach](#evaluation-approach)
 14. [Design tradeoffs](#design-tradeoffs)
 15. [Known limitations](#known-limitations)
-16. [Security notes](#security-notes)
+16. [Production roadmap](#production-roadmap)
+17. [Security notes](#security-notes)
 
 </details>
 
@@ -634,7 +634,59 @@ Engineering choices below are deliberate. Each row is **benefit vs cost** — no
 | Knowledge role | Playbooks explain findings; they do **not** invent presence |
 | Observability | Single `latency_ms` — not full stage-level metrics export |
 
-**Roadmap ideas:** heading-aware knowledge chunks for large refs, separate findings/knowledge collections if scale demands it, broader multi-scan eval + CI latency budgets, stage-level observability, optional multi-tenant productization.
+---
+
+## Production roadmap
+
+This take-home proves the **query and grounding design**. Moving to production is mostly **scale, isolation, ops, and multi-provider resilience** — not replacing SQLite-first inventory or the citation gate.
+
+### Data and storage
+
+| Improvement | Why |
+|:------------|:----|
+| **Postgres (or managed SQL)** instead of local SQLite | Concurrent writers, multi-tenant scans, backups, connection pooling |
+| **Separate vector indexes** for findings vs knowledge (or managed vector DB) | Clearer isolation than one Chroma collection + metadata only |
+| **Idempotent / incremental ingest** | Patch single findings without full scan replace; support live scanner feeds |
+| **Scanner adapters** (Burp, ZAP, SARIF, vendor JSON) | Map heterogeneous exports into the stable finding schema |
+
+### Knowledge and retrieval
+
+| Improvement | Why |
+|:------------|:----|
+| **Heading-aware, token-bounded chunking** for large PDFs / policy docs | Better precision than whole-document embeddings on long sources |
+| **Stable chunk IDs + source/section metadata** | Cite section-level guidance without losing parent document identity |
+| **Scheduled OWASP / CWE / MITRE sync** | Less drift than a static offline bundle |
+| **Optional cross-encoder** only after offline eval | Measure gain vs latency before enabling by default |
+| **Cached / local embeddings** for hot tenants | Cut ModelScope latency and quota pressure |
+
+### LLM and reliability
+
+| Improvement | Why |
+|:------------|:----|
+| **Same-provider model fallbacks** (`LLM_FALLBACK_MODELS`, e.g. Gemma → `gpt-oss-120b`) | Soft answers survive a single model outage without jumping straight to templates |
+| **Multi-provider cascade** (Cerebras → ModelScope → Groq) with per-hop timeouts | Survive one vendor’s outage; keep template as last resort only |
+| **Stage-level latency metrics** (plan / retrieve / generate) | Debug p95 and fail-soft rates in production |
+| **Stronger planner eval suite** | Catch soft-route regressions before release |
+
+### Product and security
+
+| Improvement | Why |
+|:------------|:----|
+| **AuthN/AuthZ + tenant scoping** on every API | Required for multi-customer PTaaS |
+| **Audit log** of questions, plans, cited IDs, abstentions | Compliance and incident review |
+| **Rate limiting and abuse controls** | Protect paid LLM/embed spend |
+| **UI / PTaaS dashboard** | Engineers will not live in `/docs` curl forever |
+| **Broader multi-scan golden + CI live smoke** | Continuous proof of isolation and quality under real keys |
+
+### What to keep as-is
+
+Do **not** drop these when “productionizing”:
+
+- SQLite/SQL **system of record** for inventory (or its managed SQL equivalent)  
+- **No LLM counts** of findings  
+- **Citation gate** and **existence abstain**  
+- **Fail-closed** vector filters  
+- **Fail-soft** templates when all chat models fail  
 
 ---
 
@@ -654,9 +706,3 @@ Engineering choices below are deliberate. Each row is **benefit vs cost** — no
 |----------|----------|
 | **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** | Full architecture: context diagram, dual store, ingest/query sequences, hybrid IR, planner policy, citation gate, package map, failures, tradeoffs |
 | **[`docs/VALIDATION.md`](docs/VALIDATION.md)** | Clean venv, live suite, Docker smoke, paraphrase notes, limitations |
-
----
-
-## License / assignment
-
-Take-home implementation for **AppSecure** (PTaaS). Datasets are fictional. OWASP/CWE materials include pointers for citation. **README + ARCHITECTURE.md** describe the shipped system; **VALIDATION.md** records how it was tested.
